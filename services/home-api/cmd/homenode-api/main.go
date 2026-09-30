@@ -35,8 +35,10 @@ func main() {
 		Token: cfg.TelegramBotToken, APIBaseURL: cfg.TelegramAPIBaseURL,
 		AppURL: cfg.TelegramAppURL, InternalURL: cfg.HomeNodeInternalURL,
 		APIUser: cfg.APIUsername, APIPassword: cfg.APIPassword,
-		BindAddress: cfg.VPNBindAddress,
-		MusicDir:    cfg.MusicDownloadDir,
+		BindAddress:       cfg.VPNBindAddress,
+		MusicDir:          cfg.MusicDownloadDir,
+		MacFilesPrefix:    cfg.TelegramMacFilesPrefix,
+		RouterFilesPrefix: cfg.TelegramRouterFilesPrefix,
 	}, database, logger)
 	app, err := server.New(
 		cfg,

@@ -81,3 +81,43 @@ func TestMusicPathRejectsTraversal(t *testing.T) {
 		t.Fatal("traversal was accepted")
 	}
 }
+
+func TestLocalBotAPILinksLargeFileFromRouterSSD(t *testing.T) {
+	root := t.TempDir()
+	cache := filepath.Join(root, "cache")
+	if err := os.MkdirAll(filepath.Join(cache, "documents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(cache, "documents", "track.mp3")
+	const size = 21 << 20
+	file, err := os.Create(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(size); err != nil {
+		t.Fatal(err)
+	}
+	_ = file.Close()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/getFile") {
+			t.Fatalf("unexpected Telegram method: %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": map[string]any{
+			"file_path": "/Volumes/HomeNode/bot-cache/documents/track.mp3", "file_size": size,
+		}})
+	}))
+	defer server.Close()
+	client := newAPIClient(server.URL, "token", "192.0.2.1", "/Volumes/HomeNode/bot-cache", cache)
+	target := filepath.Join(root, "import.mp3")
+	n, err := client.downloadFile(context.Background(), "file-id", target)
+	if err != nil || n != size {
+		t.Fatalf("link large file: n=%d err=%v", n, err)
+	}
+	info, err := os.Stat(target)
+	if err != nil || info.Size() != size {
+		t.Fatalf("unexpected target size: %#v err=%v", info, err)
+	}
+	if _, err := client.linkLocalFile(TelegramFile{FilePath: "/Volumes/HomeNode/other/track.mp3", FileSize: size}, filepath.Join(root, "bad.mp3")); err == nil {
+		t.Fatal("outside Mac cache path was accepted")
+	}
+}

@@ -20,14 +20,16 @@ import (
 )
 
 type Config struct {
-	Token       string
-	APIBaseURL  string
-	AppURL      string
-	InternalURL string
-	APIUser     string
-	APIPassword string
-	BindAddress string
-	MusicDir    string
+	Token             string
+	APIBaseURL        string
+	AppURL            string
+	InternalURL       string
+	APIUser           string
+	APIPassword       string
+	BindAddress       string
+	MusicDir          string
+	MacFilesPrefix    string
+	RouterFilesPrefix string
 }
 
 type Status struct {
@@ -62,7 +64,7 @@ type Bot struct {
 
 func New(cfg Config, database *store.Store, logger *slog.Logger) *Bot {
 	return &Bot{
-		cfg: cfg, api: newAPIClient(cfg.APIBaseURL, cfg.Token, cfg.BindAddress),
+		cfg: cfg, api: newAPIClient(cfg.APIBaseURL, cfg.Token, cfg.BindAddress, cfg.MacFilesPrefix, cfg.RouterFilesPrefix),
 		local: newLocalClient(cfg.InternalURL, cfg.APIUser, cfg.APIPassword),
 		store: database, logger: logger, titleCache: make(map[string]string),
 	}

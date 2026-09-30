@@ -116,8 +116,12 @@ func (b *Bot) importMusic(ctx context.Context, message *Message) error {
 	if fileID == "" || uniqueID == "" {
 		return errors.New("Telegram не передал идентификатор файла")
 	}
-	if size > maxMusicDownload {
-		return errors.New("Bot API скачивает файлы только до 20 МБ; большой файл перенесите через SMB")
+	limit := int64(maxMusicDownload)
+	if b.api.macFilesPrefix != "" && b.api.routerFilesPrefix != "" {
+		limit = maxLocalMusicDownload
+	}
+	if size > limit {
+		return fmt.Errorf("музыкальный файл больше разрешённого лимита %d МБ", limit>>20)
 	}
 	if existing, found, err := b.store.TelegramMusicByUniqueID(ctx, uniqueID); err != nil {
 		return err
@@ -138,13 +142,15 @@ func (b *Bot) importMusic(ctx context.Context, message *Message) error {
 	}
 	tempPath := temp.Name()
 	defer os.Remove(tempPath)
-	written, err := b.api.downloadFile(ctx, fileID, temp)
-	closeErr := temp.Close()
-	if err != nil {
+	if err := temp.Close(); err != nil {
 		return err
 	}
-	if closeErr != nil {
-		return closeErr
+	if err := os.Remove(tempPath); err != nil {
+		return err
+	}
+	written, err := b.api.downloadFile(ctx, fileID, tempPath)
+	if err != nil {
+		return err
 	}
 	tags := audioTags(ctx, tempPath)
 	artist := safeMusicPart(performer, "Неизвестный исполнитель")
@@ -252,7 +258,11 @@ func (b *Bot) showMusic(ctx context.Context, chatID int64, offset int) {
 		return
 	}
 	if len(items) == 0 {
-		_ = b.api.sendMessage(ctx, chatID, "🎵 Музыки из Telegram пока нет. Пришлите боту аудиофайлы или документы с музыкой (до 20 МБ каждый).", b.mainKeyboard())
+		note := "В обычном режиме — до 20 МБ на файл."
+		if b.api.macFilesPrefix != "" {
+			note = "Локальный сервер больших файлов включён."
+		}
+		_ = b.api.sendMessage(ctx, chatID, "🎵 Музыки из Telegram пока нет. Пришлите боту аудиофайлы или документы с музыкой. "+note, b.mainKeyboard())
 		return
 	}
 	rows := make([][]InlineKeyboardButton, 0, 11)

@@ -19,9 +19,11 @@ import (
 )
 
 type apiClient struct {
-	baseURL string
-	token   string
-	http    *http.Client
+	baseURL           string
+	token             string
+	http              *http.Client
+	macFilesPrefix    string
+	routerFilesPrefix string
 }
 
 type apiResponse struct {
@@ -95,15 +97,20 @@ type InlineKeyboardButton struct {
 	URL          string `json:"url,omitempty"`
 }
 
-func newAPIClient(baseURL, token, bindAddress string) *apiClient {
+func newAPIClient(baseURL, token, bindAddress, macFilesPrefix, routerFilesPrefix string) *apiClient {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
-	if ip := net.ParseIP(bindAddress); ip != nil {
+	parsed, _ := url.Parse(baseURL)
+	host := parsed.Hostname()
+	loopback := host == "localhost" || (net.ParseIP(host) != nil && net.ParseIP(host).IsLoopback())
+	if ip := net.ParseIP(bindAddress); ip != nil && !loopback {
 		transport.DialContext = (&net.Dialer{LocalAddr: &net.TCPAddr{IP: ip}}).DialContext
 	}
 	return &apiClient{
-		baseURL: baseURL,
-		token:   token,
-		http:    &http.Client{Timeout: 40 * time.Second, Transport: transport},
+		baseURL:           baseURL,
+		token:             token,
+		http:              &http.Client{Timeout: 40 * time.Second, Transport: transport},
+		macFilesPrefix:    macFilesPrefix,
+		routerFilesPrefix: routerFilesPrefix,
 	}
 }
 
@@ -120,7 +127,11 @@ func (c *apiClient) call(ctx context.Context, method string, payload any, target
 		return errors.New("не удалось подготовить запрос к Telegram")
 	}
 	req.Header.Set("Content-Type", "application/json")
-	resp, err := c.http.Do(req)
+	client := c.http
+	if method == "getFile" && c.macFilesPrefix != "" {
+		client = &http.Client{Timeout: 30 * time.Minute, Transport: c.http.Transport}
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return errors.New("Telegram API недоступен")
 	}
@@ -165,15 +176,24 @@ func (c *apiClient) answerCallback(ctx context.Context, id, text string) {
 }
 
 const maxMusicDownload = 20 << 20
+const maxLocalMusicDownload = 4 << 30
 
-func (c *apiClient) downloadFile(ctx context.Context, fileID string, target *os.File) (int64, error) {
+func (c *apiClient) downloadFile(ctx context.Context, fileID, targetPath string) (int64, error) {
 	var file TelegramFile
 	if err := c.call(ctx, "getFile", map[string]any{"file_id": fileID}, &file); err != nil {
 		return 0, err
 	}
+	if filepath.IsAbs(file.FilePath) {
+		return c.linkLocalFile(file, targetPath)
+	}
 	if file.FileSize > maxMusicDownload {
 		return 0, errors.New("Telegram Bot API не позволяет скачать файл больше 20 МБ")
 	}
+	target, err := os.OpenFile(targetPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		return 0, err
+	}
+	defer target.Close()
 	parts := strings.Split(file.FilePath, "/")
 	for i, part := range parts {
 		if part == "" || part == "." || part == ".." || strings.Contains(part, "\\") {
@@ -204,6 +224,53 @@ func (c *apiClient) downloadFile(ctx context.Context, fileID string, target *os.
 	}
 	if n > maxMusicDownload || (file.FileSize > 0 && n != file.FileSize) || (resp.ContentLength >= 0 && n != resp.ContentLength) {
 		return 0, errors.New("файл слишком большой или получен не полностью")
+	}
+	return n, nil
+}
+
+func (c *apiClient) linkLocalFile(file TelegramFile, targetPath string) (int64, error) {
+	if c.macFilesPrefix == "" || c.routerFilesPrefix == "" {
+		return 0, errors.New("локальный Telegram API требует настроенного пути к файлам на роутере")
+	}
+	relative, err := filepath.Rel(c.macFilesPrefix, file.FilePath)
+	if err != nil || relative == "." || relative == ".." || strings.HasPrefix(relative, ".."+string(os.PathSeparator)) {
+		return 0, errors.New("файл Telegram находится вне разрешённого каталога")
+	}
+	root, err := filepath.EvalSymlinks(c.routerFilesPrefix)
+	if err != nil {
+		return 0, errors.New("каталог файлов Telegram на роутере недоступен")
+	}
+	source, err := filepath.EvalSymlinks(filepath.Join(root, relative))
+	if err != nil {
+		return 0, errors.New("загруженный файл Telegram не виден на роутере")
+	}
+	verified, err := filepath.Rel(root, source)
+	if err != nil || verified == ".." || strings.HasPrefix(verified, ".."+string(os.PathSeparator)) {
+		return 0, errors.New("файл Telegram выходит за пределы разрешённого каталога")
+	}
+	info, err := os.Stat(source)
+	if err != nil || !info.Mode().IsRegular() {
+		return 0, errors.New("файл Telegram не найден на SSD")
+	}
+	if info.Size() > maxLocalMusicDownload || (file.FileSize > 0 && info.Size() != file.FileSize) {
+		return 0, errors.New("файл Telegram слишком большой или ещё не полностью загружен")
+	}
+	if err := os.Link(source, targetPath); err == nil {
+		return info.Size(), nil
+	}
+	input, err := os.Open(source)
+	if err != nil {
+		return 0, err
+	}
+	defer input.Close()
+	output, err := os.OpenFile(targetPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		return 0, err
+	}
+	defer output.Close()
+	n, err := io.Copy(output, io.LimitReader(input, maxLocalMusicDownload+1))
+	if err != nil || n != info.Size() {
+		return 0, errors.New("не удалось скопировать файл Telegram на SSD")
 	}
 	return n, nil
 }
@@ -246,7 +313,11 @@ func (c *apiClient) sendStoredFile(ctx context.Context, chatID int64, method, fi
 		return errors.New("не удалось подготовить отправку файла")
 	}
 	req.Header.Set("Content-Type", multipartWriter.FormDataContentType())
-	client := &http.Client{Timeout: 5 * time.Minute, Transport: c.http.Transport}
+	timeout := 5 * time.Minute
+	if c.macFilesPrefix != "" {
+		timeout = 30 * time.Minute
+	}
+	client := &http.Client{Timeout: timeout, Transport: c.http.Transport}
 	resp, err := client.Do(req)
 	if err != nil {
 		_ = reader.Close()
