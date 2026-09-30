@@ -8,10 +8,10 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="HomeNode">
   <title>HomeNode</title>
-  <link rel="manifest" href="/manifest.webmanifest?v=20260930-4">
-  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=20260930-4">
-  <script src="/theme.js?v=20260930-4"></script>
-  <link rel="stylesheet" href="/styles.css?v=20260930-4">
+  <link rel="manifest" href="/manifest.webmanifest?v=20260930-5">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=20260930-5">
+  <script src="/theme.js?v=20260930-5"></script>
+  <link rel="stylesheet" href="/styles.css?v=20260930-5">
 </head>
 <body>
   <div class="app-shell">
@@ -22,7 +22,8 @@
       </a>
       <nav class="side-nav">
         <button class="nav-item active" data-view="search"><img src="/icons/search.svg" alt="">Поиск</button>
-        <button class="nav-item" data-view="library"><img src="/icons/library.svg" alt="">Медиатека</button>
+        <button class="nav-item" data-view="library"><img src="/icons/library.svg" alt="">Видео</button>
+        <button class="nav-item" data-view="music"><img src="/icons/music.svg" alt="">Музыка</button>
         <button class="nav-item" data-view="downloads"><img src="/icons/download.svg" alt="">Загрузки <span id="download-count" class="nav-count" hidden></span></button>
         <button class="nav-item" data-view="history"><img src="/icons/history.svg" alt="">История</button>
         <button class="nav-item" data-view="devices"><img src="/icons/devices.svg" alt="">Устройства</button>
@@ -94,14 +95,14 @@
           <div id="search-results" class="search-results"></div>
         </section>
         <section id="recent-section" class="content-section">
-          <div class="section-heading"><div><p class="eyebrow">Уже на диске</p><h2>Недавно добавлено</h2></div><button class="text-button" data-go="library">Вся медиатека</button></div>
+          <div class="section-heading"><div><p class="eyebrow">Уже на диске</p><h2>Недавно добавлено</h2></div><button class="text-button" data-go="library">Все видео</button></div>
           <div id="recent-library" class="recent-grid"></div>
         </section>
       </section>
 
       <section id="view-library" class="view">
         <div class="page-heading">
-          <div><p class="eyebrow">SSD · HomeNode</p><h1>Медиатека</h1><p class="lead">Смотрите видео и слушайте музыку прямо в браузере или через VLC.</p></div>
+          <div><p class="eyebrow">SSD · HomeNode</p><h1>Видео</h1><p class="lead">Аниме и фильмы — смотрите в браузере или через VLC.</p></div>
           <button id="refresh-library" class="icon-button" title="Обновить"><img src="/icons/refresh.svg" alt="Обновить"></button>
         </div>
         <section id="continue-section" class="continue-section" hidden>
@@ -113,11 +114,22 @@
             <button class="chip active" data-library-category="all">Все</button>
             <button class="chip" data-library-category="anime">Аниме</button>
             <button class="chip" data-library-category="movies">Фильмы</button>
-            <button class="chip" data-library-category="music">Музыка</button>
           </div>
-          <label class="mini-search"><img src="/icons/search.svg" alt=""><input id="library-query" type="search" placeholder="Поиск в медиатеке"></label>
+          <label class="mini-search"><img src="/icons/search.svg" alt=""><input id="library-query" type="search" placeholder="Поиск аниме и фильмов"></label>
         </div>
         <div id="library-results" class="library-grid"></div>
+      </section>
+
+      <section id="view-music" class="view">
+        <div class="page-heading">
+          <div><p class="eyebrow">SSD · HomeNode</p><h1>Музыка</h1><p class="lead">Ваши исполнители, альбомы и треки. Слушайте прямо с роутера.</p></div>
+          <button id="refresh-music" class="icon-button" title="Обновить музыку" aria-label="Обновить музыку"><img src="/icons/refresh.svg" alt=""></button>
+        </div>
+        <div class="music-tools">
+          <span id="music-summary" class="section-note"></span>
+          <label class="mini-search"><img src="/icons/search.svg" alt=""><input id="music-query" type="search" placeholder="Исполнитель, альбом или трек" aria-label="Поиск музыки"></label>
+        </div>
+        <div id="music-results" class="library-grid"></div>
       </section>
 
       <section id="view-downloads" class="view">
@@ -169,7 +181,8 @@
 
   <nav class="mobile-nav" aria-label="Основная навигация">
     <button class="mobile-nav-item active" data-view="search"><img src="/icons/search.svg" alt=""><span>Поиск</span></button>
-    <button class="mobile-nav-item" data-view="library"><img src="/icons/library.svg" alt=""><span>Медиатека</span></button>
+    <button class="mobile-nav-item" data-view="library"><img src="/icons/library.svg" alt=""><span>Видео</span></button>
+    <button class="mobile-nav-item" data-view="music"><img src="/icons/music.svg" alt=""><span>Музыка</span></button>
     <button class="mobile-nav-item" data-view="downloads"><img src="/icons/download.svg" alt=""><span>Загрузки</span></button>
     <button class="mobile-nav-item" data-view="history"><img src="/icons/history.svg" alt=""><span>История</span></button>
     <button class="mobile-nav-item" data-view="devices"><img src="/icons/devices.svg" alt=""><span>Устройства</span></button>
@@ -198,6 +211,6 @@
     </div>
   </dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="/app.js?v=20260930-4" defer></script>
+  <script src="/app.js?v=20260930-5" defer></script>
 </body>
 </html>

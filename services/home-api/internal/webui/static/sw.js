@@ -1,5 +1,5 @@
-const CACHE = 'homenode-shell-v2';
-const SHELL = ['/styles.css?v=20260930-4', '/theme.js?v=20260930-4', '/app.js?v=20260930-4'];
+const CACHE = 'homenode-shell-v3';
+const SHELL = ['/styles.css?v=20260930-5', '/theme.js?v=20260930-5', '/app.js?v=20260930-5'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)).catch(() => {}));

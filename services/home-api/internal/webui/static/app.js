@@ -106,6 +106,7 @@ function setView(name) {
   $$('[data-view]').forEach((button) => button.classList.toggle('active', button.dataset.view === name));
   window.history.replaceState(null, '', `#${name}`);
   if (name === 'library') loadLibrary();
+  if (name === 'music') loadMusic();
   if (name === 'downloads') loadDownloads();
   if (name === 'history') loadHistory();
   if (name === 'devices') loadDevices();
@@ -651,9 +652,24 @@ function renderContinueWatching() {
 function renderLibrary() {
   const container = $('#library-results');
   const query = $('#library-query').value.trim().toLowerCase();
-  const filtered = state.library.filter((item) => (state.libraryCategory === 'all' || item.category === state.libraryCategory) && item.title.toLowerCase().includes(query));
+  const filtered = state.library.filter((item) => item.category !== 'music'
+    && (state.libraryCategory === 'all' || item.category === state.libraryCategory)
+    && item.title.toLowerCase().includes(query));
   container.replaceChildren();
-  if (!filtered.length) return container.append(emptyState('Здесь пока пусто', 'Измените фильтр или добавьте новый тайтл.'));
+  if (!filtered.length) return container.append(emptyState('Здесь пока пусто', 'Измените фильтр или добавьте видео.'));
+  filtered.forEach((item) => container.append(renderLibraryCard(item)));
+}
+
+function renderMusic() {
+  const container = $('#music-results');
+  const query = $('#music-query').value.trim().toLocaleLowerCase();
+  const albums = state.library.filter((item) => item.category === 'music');
+  const filtered = albums.filter((item) => !query || [item.title, item.artist, ...(item.files || []).map((file) => file.name)]
+    .some((value) => (value || '').toLocaleLowerCase().includes(query)));
+  const tracks = albums.reduce((sum, item) => sum + item.file_count, 0);
+  $('#music-summary').textContent = `${albums.length} альбомов · ${tracks} треков`;
+  container.replaceChildren();
+  if (!filtered.length) return container.append(emptyState(query ? 'Музыка не найдена' : 'Музыки пока нет', query ? 'Попробуйте другое название.' : 'Добавьте треки на SSD роутера.'));
   filtered.forEach((item) => container.append(renderLibraryCard(item)));
 }
 
@@ -664,13 +680,20 @@ async function loadLibrary(silent = false) {
   catch (error) { container.replaceChildren(emptyState('Не удалось прочитать медиатеку', error.message, true)); }
 }
 
+async function loadMusic(silent = false) {
+  const container = $('#music-results');
+  if (!silent) container.replaceChildren(emptyState('Читаем музыку…'));
+  try { await fetchLibrary(); renderMusic(); }
+  catch (error) { container.replaceChildren(emptyState('Не удалось прочитать музыку', error.message, true)); }
+}
+
 async function loadRecentLibrary() {
   const container = $('#recent-library');
   try {
     if (!state.library.length) await fetchLibrary();
     container.replaceChildren();
-    const items = state.library.slice(0, 4);
-    if (!items.length) return container.append(emptyState('Медиатека пока пуста'));
+    const items = state.library.filter((item) => item.category !== 'music').slice(0, 4);
+    if (!items.length) return container.append(emptyState('Видео пока нет'));
     items.forEach((item) => container.append(renderLibraryCard(item, true)));
   } catch (error) { container.replaceChildren(emptyState('Медиатека недоступна', error.message, true)); }
 }
@@ -682,6 +705,8 @@ $$('[data-library-category]').forEach((button) => button.addEventListener('click
 }));
 $('#library-query').addEventListener('input', renderLibrary);
 $('#refresh-library').addEventListener('click', () => loadLibrary());
+$('#music-query').addEventListener('input', renderMusic);
+$('#refresh-music').addEventListener('click', () => loadMusic());
 
 const downloadStatus = {
   0: 'На паузе', 1: 'Ожидает проверки', 2: 'Проверяется', 3: 'В очереди', 4: 'Загружается', 5: 'Ожидает раздачи', 6: 'Готово · раздаётся',
@@ -966,13 +991,13 @@ async function loadStatus() {
   } catch (error) { $('span:last-child', $('#disk-status')).textContent = error.message; }
 }
 
-const initialView = ['search', 'library', 'downloads', 'history', 'devices', 'telegram'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'search';
+const initialView = ['search', 'library', 'music', 'downloads', 'history', 'devices', 'telegram'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'search';
 setView(initialView);
 loadStatus();
 loadRecentLibrary();
 loadDownloads(true);
 if (isAppleWebKit && 'serviceWorker' in navigator && location.protocol === 'https:') {
-  navigator.serviceWorker.register('/sw.js?v=20260930-4').catch(() => {});
+  navigator.serviceWorker.register('/sw.js?v=20260930-5').catch(() => {});
 }
 if (isAppleWebKit && !navigator.standalone && !localStorage.getItem('homenode-ios-install-dismissed')) {
   $('#ios-install-hint').hidden = false;
