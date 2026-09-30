@@ -27,6 +27,7 @@ type Config struct {
 	APIUser     string
 	APIPassword string
 	BindAddress string
+	MusicDir    string
 }
 
 type Status struct {
@@ -155,6 +156,7 @@ func (b *Bot) Run(ctx context.Context) {
 		{"command": "search", "description": "Найти аниме или фильм"},
 		{"command": "downloads", "description": "Управление загрузками"},
 		{"command": "library", "description": "Медиатека"},
+		{"command": "music", "description": "Музыка из Telegram"},
 		{"command": "app", "description": "Открыть Home Node"},
 		{"command": "help", "description": "Справка"},
 	}}, nil)
@@ -287,6 +289,12 @@ func (b *Bot) handleMessage(ctx context.Context, message *Message) {
 			"🔒 <b>Home Node не привязан</b>\n\nОткройте локальный интерфейс Home Node → Telegram и получите одноразовый код.", InlineKeyboardMarkup{})
 		return
 	}
+	if message.Audio != nil || message.Document != nil {
+		if err := b.importMusic(ctx, message); err != nil {
+			b.sendError(ctx, message.Chat.ID, err)
+		}
+		return
+	}
 	command, argument := splitCommand(text)
 	switch command {
 	case "/start", "/help", "":
@@ -314,6 +322,8 @@ func (b *Bot) handleMessage(ctx context.Context, message *Message) {
 		b.showDownloads(ctx, message.Chat.ID)
 	case "/library":
 		b.showLibrary(ctx, message.Chat.ID)
+	case "/music":
+		b.showMusic(ctx, message.Chat.ID, 0)
 	case "/app":
 		b.openApp(ctx, message.Chat.ID)
 	default:
@@ -377,6 +387,8 @@ func (b *Bot) handleCallback(ctx context.Context, callback *CallbackQuery) {
 			b.showDownloads(ctx, chatID)
 		case "library":
 			b.showLibrary(ctx, chatID)
+		case "music":
+			b.showMusic(ctx, chatID, 0)
 		case "app":
 			b.openApp(ctx, chatID)
 		case "home":
@@ -406,6 +418,22 @@ func (b *Bot) handleCallback(ctx context.Context, callback *CallbackQuery) {
 				b.controlDownload(ctx, chatID, parts[1], id)
 			}
 		}
+	case "music":
+		if id, ok := callbackIntAllowZero(parts, 1); ok {
+			b.showMusic(ctx, chatID, int(id))
+		}
+	case "track":
+		if id, ok := callbackInt(parts, 1); ok {
+			b.showMusicTrack(ctx, chatID, id)
+		}
+	case "listen":
+		if id, ok := callbackInt(parts, 1); ok {
+			b.sendMusicTrack(ctx, chatID, id, false)
+		}
+	case "get":
+		if id, ok := callbackInt(parts, 1); ok {
+			b.sendMusicTrack(ctx, chatID, id, true)
+		}
 	}
 }
 
@@ -414,13 +442,14 @@ func (b *Bot) mainMenu(ctx context.Context, chatID int64) {
 	b.awaitingSearch = false
 	b.mu.Unlock()
 	_ = b.api.sendMessage(ctx, chatID,
-		"🏠 <b>Home Node</b>\n\nПоиск по AniLiberty и RuTracker, медиатека и управление Transmission.", b.mainKeyboard())
+		"🏠 <b>Home Node</b>\n\nПоиск, медиатека, музыка и управление загрузками.", b.mainKeyboard())
 }
 
 func (b *Bot) mainKeyboard() InlineKeyboardMarkup {
 	return InlineKeyboardMarkup{Rows: [][]InlineKeyboardButton{
 		{{Text: "🔍 Поиск", CallbackData: "menu:search"}},
 		{{Text: "⬇️ Загрузки", CallbackData: "menu:downloads"}, {Text: "🎞 Медиатека", CallbackData: "menu:library"}},
+		{{Text: "🎵 Музыка", CallbackData: "menu:music"}},
 		{{Text: "📱 Открыть Home Node", CallbackData: "menu:app"}},
 	}}
 }
@@ -708,6 +737,14 @@ func callbackInt(parts []string, index int) (int64, bool) {
 	}
 	value, err := strconv.ParseInt(parts[index], 10, 64)
 	return value, err == nil && value > 0
+}
+
+func callbackIntAllowZero(parts []string, index int) (int64, bool) {
+	if index >= len(parts) {
+		return 0, false
+	}
+	value, err := strconv.ParseInt(parts[index], 10, 64)
+	return value, err == nil && value >= 0
 }
 
 func short(value string, limit int) string {

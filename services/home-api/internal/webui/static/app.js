@@ -473,7 +473,16 @@ function openPlayer(item, preferredPath = '') {
       $('small', button).textContent = current?.completed ? `${humanBytes(file.size)} · просмотрено`
         : resumableProgress(current) ? `${humanBytes(file.size)} · ${playbackTime(current.position_seconds)}` : humanBytes(file.size);
     });
-    row.append(button, watched);
+    if (isMusic) {
+      const save = element('a', 'track-download', '⬇');
+      save.href = `${streamURL(file)}&download=1`;
+      save.title = `Скачать ${file.name}`;
+      save.setAttribute('aria-label', save.title);
+      save.setAttribute('download', file.name);
+      row.append(button, save);
+    } else {
+      row.append(button, watched);
+    }
     list.append(row);
     buttons.set(file.path, button);
   });

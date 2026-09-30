@@ -42,6 +42,19 @@ type TelegramDownloadState struct {
 	ErrorString string
 }
 
+type TelegramMusicTrack struct {
+	ID           int64
+	FileUniqueID string
+	FileID       string
+	FileKind     string
+	Path         string
+	Title        string
+	Artist       string
+	Album        string
+	Size         int64
+	ImportedAt   string
+}
+
 type WatchProgress struct {
 	Path            string  `json:"path"`
 	Title           string  `json:"title"`
@@ -95,6 +108,19 @@ func Open(path string) (*Store, error) {
 			error_string TEXT NOT NULL DEFAULT '',
 			updated_at TEXT NOT NULL
 		);
+		CREATE TABLE IF NOT EXISTS telegram_music_tracks (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			file_unique_id TEXT NOT NULL UNIQUE,
+			file_id TEXT NOT NULL,
+			file_kind TEXT NOT NULL,
+			path TEXT NOT NULL,
+			title TEXT NOT NULL,
+			artist TEXT NOT NULL,
+			album TEXT NOT NULL,
+			size INTEGER NOT NULL,
+			imported_at TEXT NOT NULL
+		);
+		CREATE INDEX IF NOT EXISTS idx_telegram_music_imported_at ON telegram_music_tracks(imported_at DESC, id DESC);
 		CREATE TABLE IF NOT EXISTS watch_progress (
 			path TEXT PRIMARY KEY,
 			title TEXT NOT NULL DEFAULT '',
@@ -186,6 +212,53 @@ func (s *Store) SetTelegramDownloadState(ctx context.Context, torrentID int64, s
 			error_string=excluded.error_string,
 			updated_at=excluded.updated_at`,
 		torrentID, state.PercentDone, state.ErrorString, time.Now().UTC().Format(time.RFC3339))
+	return err
+}
+
+func (s *Store) TelegramMusicByUniqueID(ctx context.Context, uniqueID string) (TelegramMusicTrack, bool, error) {
+	var item TelegramMusicTrack
+	err := s.db.QueryRowContext(ctx, `SELECT id, file_unique_id, file_id, file_kind, path, title, artist, album, size, imported_at FROM telegram_music_tracks WHERE file_unique_id = ?`, uniqueID).
+		Scan(&item.ID, &item.FileUniqueID, &item.FileID, &item.FileKind, &item.Path, &item.Title, &item.Artist, &item.Album, &item.Size, &item.ImportedAt)
+	if err == sql.ErrNoRows {
+		return TelegramMusicTrack{}, false, nil
+	}
+	return item, err == nil, err
+}
+
+func (s *Store) TelegramMusicByID(ctx context.Context, id int64) (TelegramMusicTrack, bool, error) {
+	var item TelegramMusicTrack
+	err := s.db.QueryRowContext(ctx, `SELECT id, file_unique_id, file_id, file_kind, path, title, artist, album, size, imported_at FROM telegram_music_tracks WHERE id = ?`, id).
+		Scan(&item.ID, &item.FileUniqueID, &item.FileID, &item.FileKind, &item.Path, &item.Title, &item.Artist, &item.Album, &item.Size, &item.ImportedAt)
+	if err == sql.ErrNoRows {
+		return TelegramMusicTrack{}, false, nil
+	}
+	return item, err == nil, err
+}
+
+func (s *Store) TelegramMusicTracks(ctx context.Context, limit, offset int) ([]TelegramMusicTrack, error) {
+	if limit < 1 || limit > 50 || offset < 0 {
+		return nil, fmt.Errorf("invalid music page")
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT id, file_unique_id, file_id, file_kind, path, title, artist, album, size, imported_at FROM telegram_music_tracks ORDER BY imported_at DESC, id DESC LIMIT ? OFFSET ?`, limit, offset)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]TelegramMusicTrack, 0, limit)
+	for rows.Next() {
+		var item TelegramMusicTrack
+		if err := rows.Scan(&item.ID, &item.FileUniqueID, &item.FileID, &item.FileKind, &item.Path, &item.Title, &item.Artist, &item.Album, &item.Size, &item.ImportedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (s *Store) UpsertTelegramMusicTrack(ctx context.Context, item TelegramMusicTrack) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO telegram_music_tracks(file_unique_id, file_id, file_kind, path, title, artist, album, size, imported_at)
+		VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(file_unique_id) DO UPDATE SET file_id=excluded.file_id, file_kind=excluded.file_kind`,
+		item.FileUniqueID, item.FileID, item.FileKind, item.Path, item.Title, item.Artist, item.Album, item.Size, time.Now().UTC().Format(time.RFC3339Nano))
 	return err
 }
 

@@ -9,6 +9,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -63,7 +64,11 @@ func (s *Server) mediaStream(w http.ResponseWriter, r *http.Request) {
 
 	ext := strings.ToLower(filepath.Ext(info.Name()))
 	w.Header().Set("Content-Type", mediaContentTypes[ext])
-	w.Header().Set("Content-Disposition", "inline")
+	if r.URL.Query().Get("download") == "1" {
+		w.Header().Set("Content-Disposition", "attachment; filename*=UTF-8''"+url.PathEscape(info.Name()))
+	} else {
+		w.Header().Set("Content-Disposition", "inline")
+	}
 	w.Header().Set("Cache-Control", "private, max-age=3600")
 	http.ServeContent(w, r, info.Name(), info.ModTime(), file)
 }

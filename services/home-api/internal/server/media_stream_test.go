@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"homenode/services/home-api/internal/config"
@@ -55,6 +56,27 @@ func TestMediaStreamSupportsAudio(t *testing.T) {
 	}
 	if recorder.Header().Get("Content-Type") != "audio/mpeg" {
 		t.Fatalf("unexpected audio content type: %q", recorder.Header().Get("Content-Type"))
+	}
+}
+
+func TestMediaStreamCanDownloadMusic(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "music", "Artist", "Album", "Песня.mp3")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("audio"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	server := &Server{cfg: config.Config{MediaRoot: root}}
+	request := httptest.NewRequest(http.MethodGet, "/api/media/stream?path=music%2FArtist%2FAlbum%2F%D0%9F%D0%B5%D1%81%D0%BD%D1%8F.mp3&download=1", nil)
+	recorder := httptest.NewRecorder()
+	server.mediaStream(recorder, request)
+	if recorder.Code != http.StatusOK || recorder.Body.String() != "audio" {
+		t.Fatalf("unexpected response: %d %q", recorder.Code, recorder.Body.String())
+	}
+	if got := recorder.Header().Get("Content-Disposition"); !strings.HasPrefix(got, "attachment;") {
+		t.Fatalf("expected attachment, got %q", got)
 	}
 }
 

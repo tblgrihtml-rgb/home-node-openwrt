@@ -36,6 +36,7 @@ func main() {
 		AppURL: cfg.TelegramAppURL, InternalURL: cfg.HomeNodeInternalURL,
 		APIUser: cfg.APIUsername, APIPassword: cfg.APIPassword,
 		BindAddress: cfg.VPNBindAddress,
+		MusicDir:    cfg.MusicDownloadDir,
 	}, database, logger)
 	app, err := server.New(
 		cfg,
