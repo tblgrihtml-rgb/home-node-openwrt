@@ -1,0 +1,53 @@
+#!/bin/sh /etc/rc.common
+
+START=95
+STOP=10
+USE_PROCD=1
+
+PROG="/mnt/ssd/homenode/bin/homenode-api"
+ENV_FILE="/etc/homenode.env"
+
+start_service() {
+	[ -x "$PROG" ] || return 1
+	[ -r "$ENV_FILE" ] || return 1
+
+	. "$ENV_FILE"
+
+	procd_open_instance
+	procd_set_param command "$PROG"
+	procd_set_param user homenode
+	procd_set_param group transmission
+	procd_set_param env \
+		"HOMENODE_LISTEN=$HOMENODE_LISTEN" \
+		"HOMENODE_DB=$HOMENODE_DB" \
+		"HOMENODE_BACKUP_DIR=${HOMENODE_BACKUP_DIR:-/mnt/ssd/homenode/data/backups}" \
+		"HOMENODE_SYSTEM_HEALTH=${HOMENODE_SYSTEM_HEALTH:-/mnt/ssd/homenode/data/system-health.json}" \
+		"HOMENODE_COMPATIBLE_CACHE=${HOMENODE_COMPATIBLE_CACHE:-/mnt/ssd/homenode/data/compatible-cache}" \
+		"HOMENODE_MEDIA_ROOT=$HOMENODE_MEDIA_ROOT" \
+		"HOMENODE_ANIME_DIR=$HOMENODE_ANIME_DIR" \
+		"HOMENODE_MOVIES_DIR=$HOMENODE_MOVIES_DIR" \
+		"HOMENODE_USER=$HOMENODE_USER" \
+		"HOMENODE_PASSWORD=$HOMENODE_PASSWORD" \
+		"HOMENODE_SESSION_SECRET=$HOMENODE_SESSION_SECRET" \
+		"ANILIBERTY_BASE_URL=$ANILIBERTY_BASE_URL" \
+		"TRANSMISSION_RPC_URL=$TRANSMISSION_RPC_URL" \
+		"TRANSMISSION_RPC_USERNAME=$TRANSMISSION_RPC_USERNAME" \
+		"TRANSMISSION_RPC_PASSWORD=$TRANSMISSION_RPC_PASSWORD" \
+		"RUTRACKER_BASE_URL=$RUTRACKER_BASE_URL" \
+		"RUTRACKER_PROXY_URL=$RUTRACKER_PROXY_URL" \
+		"RUTRACKER_USERNAME=$RUTRACKER_USERNAME" \
+		"RUTRACKER_PASSWORD=$RUTRACKER_PASSWORD" \
+		"TELEGRAM_BOT_TOKEN=$TELEGRAM_BOT_TOKEN" \
+		"TELEGRAM_API_BASE_URL=${TELEGRAM_API_BASE_URL:-https://api.telegram.org}" \
+		"TELEGRAM_APP_URL=${TELEGRAM_APP_URL:-http://192.168.1.1:8787/}" \
+		"HOMENODE_INTERNAL_URL=${HOMENODE_INTERNAL_URL:-http://192.168.1.1:8787}" \
+		"FFMPEG_PATH=${FFMPEG_PATH:-/usr/bin/ffmpeg}" \
+		"VPN_BIND_ADDRESS=${VPN_BIND_ADDRESS:-}" \
+		"VPN_DEVICES_PATH=${VPN_DEVICES_PATH:-/mnt/ssd/homenode/data/vpn-devices}" \
+		"VPN_SMART_DEVICES_PATH=${VPN_SMART_DEVICES_PATH:-/mnt/ssd/homenode/data/vpn-smart-devices}"
+	procd_set_param respawn 3600 5 5
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_set_param limits nofile="4096 4096"
+	procd_close_instance
+}

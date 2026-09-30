@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#100e16">
+  <title>Вход — HomeNode</title>
+  <script src="/theme.js?v=20260930-2"></script>
+  <link rel="stylesheet" href="/styles.css?v=20260930-2">
+</head>
+<body class="login-page">
+  <button class="theme-corner" type="button" data-theme-toggle aria-pressed="false"><span data-theme-glyph>☾</span><span class="visually-hidden" data-theme-label>Тёмная тема</span></button>
+  <main class="login-shell">
+    <form id="login-form" class="login-card">
+      <p class="eyebrow">Домашняя медиатека</p>
+      <h1>HomeNode</h1>
+      <p class="hint">Войди один раз — это устройство можно запомнить на 180 дней.</p>
+      <label>
+        <span>Логин</span>
+        <input id="username" name="username" autocomplete="username" value="home" required>
+      </label>
+      <label>
+        <span>Пароль</span>
+        <input id="password" name="password" type="password" autocomplete="current-password" required autofocus>
+      </label>
+      <label class="remember-row">
+        <input id="remember" type="checkbox" checked>
+        <span>Запомнить это устройство</span>
+      </label>
+      <button id="login-button" class="action green" type="submit">Войти</button>
+      <p id="login-error" class="login-error" role="alert"></p>
+    </form>
+  </main>
+  <script src="/login.js?v=20260930-2" defer></script>
+</body>
+</html>

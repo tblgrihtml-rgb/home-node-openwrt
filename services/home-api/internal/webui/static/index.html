@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f7f5fa">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="HomeNode">
+  <title>HomeNode</title>
+  <link rel="manifest" href="/manifest.webmanifest?v=20260930-4">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=20260930-4">
+  <script src="/theme.js?v=20260930-4"></script>
+  <link rel="stylesheet" href="/styles.css?v=20260930-4">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Основная навигация">
+      <a class="brand" href="#search" data-nav="search" aria-label="HomeNode">
+        <span class="brand-mark">H</span>
+        <span><strong>HomeNode</strong><small>Домашняя медиатека</small></span>
+      </a>
+      <nav class="side-nav">
+        <button class="nav-item active" data-view="search"><img src="/icons/search.svg" alt="">Поиск</button>
+        <button class="nav-item" data-view="library"><img src="/icons/library.svg" alt="">Медиатека</button>
+        <button class="nav-item" data-view="downloads"><img src="/icons/download.svg" alt="">Загрузки <span id="download-count" class="nav-count" hidden></span></button>
+        <button class="nav-item" data-view="history"><img src="/icons/history.svg" alt="">История</button>
+        <button class="nav-item" data-view="devices"><img src="/icons/devices.svg" alt="">Устройства</button>
+        <button class="nav-item" data-view="telegram"><img src="/icons/bot.svg" alt="">Telegram</button>
+      </nav>
+      <div class="sidebar-footer">
+        <div id="disk-status" class="disk-status"><span class="status-dot"></span><span>Подключение…</span></div>
+        <button class="nav-item quiet theme-toggle" type="button" data-theme-toggle aria-pressed="false"><span class="theme-glyph" data-theme-glyph>☾</span><span data-theme-label>Тёмная тема</span></button>
+        <button id="logout" class="nav-item quiet"><img src="/icons/logout.svg" alt="">Выйти</button>
+      </div>
+    </aside>
+
+    <main class="workspace">
+      <header class="mobile-header">
+        <a class="brand compact" href="#search" data-nav="search"><span class="brand-mark">H</span><strong>HomeNode</strong></a>
+        <div class="mobile-header-actions">
+          <span id="mobile-status" class="connection-pill"><span class="status-dot"></span>Онлайн</span>
+          <button class="theme-mobile-button" type="button" data-theme-toggle aria-pressed="false"><span data-theme-glyph>☾</span></button>
+        </div>
+      </header>
+
+      <section id="view-search" class="view active">
+        <div class="search-hero">
+          <p class="eyebrow">Поиск по медиатекам</p>
+          <h1>Что включим?</h1>
+          <p class="lead">Аниме из AniLiberty, фильмы и музыка с RuTracker — в одном месте.</p>
+          <form id="search-form" class="global-search">
+            <img src="/icons/search.svg" alt="">
+            <input id="search-query" type="search" minlength="2" maxlength="100" placeholder="Название аниме, фильма, исполнителя или альбома" autocomplete="off" required>
+            <button type="submit">Найти</button>
+          </form>
+          <div class="search-toolbar">
+            <div class="source-switch" role="group" aria-label="Источник поиска">
+              <button type="button" class="source-button active" data-source="all">Все источники</button>
+              <button type="button" class="source-button" data-source="anime">AniLiberty</button>
+              <button type="button" class="source-button" data-source="tracker">RuTracker</button>
+              <button type="button" class="source-button" data-source="music">Музыка</button>
+            </div>
+            <button id="toggle-filters" type="button" class="filter-toggle" aria-expanded="false">Фильтры <span id="filter-count" hidden>0</span></button>
+          </div>
+          <div id="filter-panel" class="filter-panel" hidden>
+            <label>Тип
+              <select id="filter-type">
+                <option value="">Любой</option><option value="TV">ТВ</option><option value="WEB">Веб</option>
+                <option value="ONA">ONA</option><option value="OVA">OVA</option><option value="MOVIE">Фильм</option>
+                <option value="SPECIAL">Спешл</option><option value="DORAMA">Дорама</option>
+              </select>
+            </label>
+            <label>Год от<input id="filter-year-from" type="number" min="1960" max="2028" inputmode="numeric" placeholder="2000"></label>
+            <label>Год до<input id="filter-year-to" type="number" min="1960" max="2028" inputmode="numeric" placeholder="2026"></label>
+            <label>Статус
+              <select id="filter-status"><option value="">Любой</option><option value="IS_ONGOING">Выходит</option><option value="IS_NOT_ONGOING">Завершён</option></select>
+            </label>
+            <label>Сортировка
+              <select id="filter-sorting"><option value="RATING_DESC">По рейтингу</option><option value="FRESH_AT_DESC">Сначала свежие</option><option value="YEAR_DESC">Сначала новые</option><option value="YEAR_ASC">Сначала старые</option></select>
+            </label>
+            <label>Минимум сидов<input id="filter-seeds" type="number" min="0" max="99999" inputmode="numeric" value="0"></label>
+            <button id="reset-filters" type="button" class="text-button">Сбросить</button>
+          </div>
+          <div id="ios-install-hint" class="ios-install-hint" hidden>
+            <div><strong>Установить HomeNode на iPhone</strong><span>В Safari нажмите «Поделиться» → «На экран Домой».</span></div>
+            <button id="dismiss-ios-install" type="button" aria-label="Скрыть">×</button>
+          </div>
+        </div>
+
+        <div id="search-message" class="inline-message" hidden></div>
+        <section id="search-results-section" class="content-section" hidden>
+          <div class="section-heading"><div><p class="eyebrow">Результаты</p><h2 id="search-results-title">Найдено</h2></div><span id="search-summary" class="section-note"></span></div>
+          <div id="search-results" class="search-results"></div>
+        </section>
+        <section id="recent-section" class="content-section">
+          <div class="section-heading"><div><p class="eyebrow">Уже на диске</p><h2>Недавно добавлено</h2></div><button class="text-button" data-go="library">Вся медиатека</button></div>
+          <div id="recent-library" class="recent-grid"></div>
+        </section>
+      </section>
+
+      <section id="view-library" class="view">
+        <div class="page-heading">
+          <div><p class="eyebrow">SSD · HomeNode</p><h1>Медиатека</h1><p class="lead">Смотрите видео и слушайте музыку прямо в браузере или через VLC.</p></div>
+          <button id="refresh-library" class="icon-button" title="Обновить"><img src="/icons/refresh.svg" alt="Обновить"></button>
+        </div>
+        <section id="continue-section" class="continue-section" hidden>
+          <div class="section-heading"><div><p class="eyebrow">История просмотра</p><h2>Продолжить просмотр</h2></div><span id="last-watched-note" class="section-note"></span></div>
+          <div id="continue-watching" class="continue-grid"></div>
+        </section>
+        <div class="library-tools">
+          <div class="chips" role="group" aria-label="Фильтр медиатеки">
+            <button class="chip active" data-library-category="all">Все</button>
+            <button class="chip" data-library-category="anime">Аниме</button>
+            <button class="chip" data-library-category="movies">Фильмы</button>
+            <button class="chip" data-library-category="music">Музыка</button>
+          </div>
+          <label class="mini-search"><img src="/icons/search.svg" alt=""><input id="library-query" type="search" placeholder="Поиск в медиатеке"></label>
+        </div>
+        <div id="library-results" class="library-grid"></div>
+      </section>
+
+      <section id="view-downloads" class="view">
+        <div class="page-heading">
+          <div><p class="eyebrow">Transmission</p><h1>Загрузки</h1><p class="lead">Управление очередью и файлами на SSD.</p></div>
+          <button id="refresh-downloads" class="icon-button" title="Обновить"><img src="/icons/refresh.svg" alt="Обновить"></button>
+        </div>
+        <div class="chips download-filters" role="group" aria-label="Фильтр загрузок">
+          <button class="chip active" data-download-filter="all">Все</button>
+          <button class="chip" data-download-filter="active">Активные</button>
+          <button class="chip" data-download-filter="done">Готовые</button>
+          <button class="chip" data-download-filter="paused">На паузе</button>
+        </div>
+        <div class="downloads-layout">
+          <div id="download-results" class="download-list"></div>
+          <aside id="download-inspector" class="download-inspector"><div class="empty-state compact"><img src="/icons/download.svg" alt=""><strong>Выберите загрузку</strong><span>Здесь появятся детали и управление.</span></div></aside>
+        </div>
+      </section>
+
+      <section id="view-history" class="view">
+        <div class="page-heading">
+          <div><p class="eyebrow">Журнал</p><h1>История</h1><p class="lead">Поиск, добавление и управление загрузками.</p></div>
+          <button id="refresh-history" class="icon-button" title="Обновить"><img src="/icons/refresh.svg" alt="Обновить"></button>
+        </div>
+        <div id="history-results" class="timeline"></div>
+      </section>
+
+      <section id="view-telegram" class="view">
+        <div class="page-heading">
+          <div><p class="eyebrow">Удалённое управление</p><h1>Telegram</h1><p class="lead">Поиск, медиатека и загрузки прямо в личном чате.</p></div>
+          <button id="refresh-telegram" class="icon-button" title="Обновить"><img src="/icons/refresh.svg" alt="Обновить"></button>
+        </div>
+        <div id="telegram-card" class="integration-card">
+          <div class="empty-state compact"><img src="/icons/bot.svg" alt=""><strong>Проверяем подключение…</strong></div>
+        </div>
+      </section>
+
+      <section id="view-devices" class="view">
+        <div class="page-heading">
+          <div><p class="eyebrow">Маршрутизация</p><h1>Устройства</h1><p class="lead">Для каждого устройства можно оставить обычный интернет, отправлять через VPN только Discord, YouTube и Telegram либо включить VPN целиком.</p></div>
+          <button id="refresh-devices" class="icon-button" title="Обновить"><img src="/icons/refresh.svg" alt="Обновить"></button>
+        </div>
+        <div class="routing-note"><span class="status-dot ok"></span><span>Торренты на роутере всегда используют обычный интернет. Режим устройства применяется в течение нескольких секунд; для выборочного режима DNS устройства должен проходить через роутер.</span></div>
+        <div id="system-health" class="health-grid"></div>
+        <div id="device-results" class="device-list"></div>
+      </section>
+    </main>
+  </div>
+
+  <nav class="mobile-nav" aria-label="Основная навигация">
+    <button class="mobile-nav-item active" data-view="search"><img src="/icons/search.svg" alt=""><span>Поиск</span></button>
+    <button class="mobile-nav-item" data-view="library"><img src="/icons/library.svg" alt=""><span>Медиатека</span></button>
+    <button class="mobile-nav-item" data-view="downloads"><img src="/icons/download.svg" alt=""><span>Загрузки</span></button>
+    <button class="mobile-nav-item" data-view="history"><img src="/icons/history.svg" alt=""><span>История</span></button>
+    <button class="mobile-nav-item" data-view="devices"><img src="/icons/devices.svg" alt=""><span>Устройства</span></button>
+    <button class="mobile-nav-item" data-view="telegram"><img src="/icons/bot.svg" alt=""><span>Telegram</span></button>
+  </nav>
+  <dialog id="media-dialog" class="media-dialog">
+    <div class="player-shell">
+      <div class="player-heading">
+        <div><p class="eyebrow">Локальная медиатека</p><h2 id="player-title">Просмотр</h2></div>
+        <div class="player-heading-actions">
+          <button id="next-episode" class="secondary-button" type="button" hidden>Следующая серия</button>
+          <button id="close-player" class="icon-button" type="button" aria-label="Закрыть">×</button>
+        </div>
+      </div>
+      <video id="media-player" controls playsinline preload="metadata"></video>
+      <audio id="audio-player" controls preload="metadata" hidden></audio>
+      <div class="player-guidance">
+        <p id="player-note" class="player-note"></p>
+        <button id="player-direct" class="text-button" type="button" hidden>Открыть исходный файл</button>
+      </div>
+      <div id="autoplay-countdown" class="autoplay-countdown" hidden>
+        <span>Следующая серия через <strong id="autoplay-seconds">8</strong> сек.</span>
+        <button id="cancel-autoplay" class="text-button" type="button">Отмена</button>
+      </div>
+      <div id="episode-list" class="episode-list"></div>
+    </div>
+  </dialog>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="/app.js?v=20260930-4" defer></script>
+</body>
+</html>

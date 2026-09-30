@@ -1,0 +1,65 @@
+#!/bin/sh
+
+set -eu
+
+INTERFACE="awg0"
+ROUTE_TABLE="51820"
+RULE_VPN_PRIORITY="10001"
+BIN="/mnt/ssd/homenode/bin/amneziawg-go"
+CONFIG="/etc/amneziawg/awg0.conf"
+ENV_FILE="/etc/amneziawg/awg0.env"
+PID=""
+
+cleanup() {
+	ip -4 rule del priority "$RULE_VPN_PRIORITY" 2>/dev/null || true
+	ip -4 route del default dev "$INTERFACE" table "$ROUTE_TABLE" 2>/dev/null || true
+	ip -4 route replace blackhole default metric 32767 table "$ROUTE_TABLE" 2>/dev/null || true
+	ifdown awg 2>/dev/null || true
+	if [ -n "$PID" ]; then
+		kill "$PID" 2>/dev/null || true
+		wait "$PID" 2>/dev/null || true
+	fi
+	rm -f "/var/run/amneziawg/${INTERFACE}.sock"
+}
+
+trap 'cleanup; exit 0' INT TERM
+trap cleanup EXIT
+
+[ -x "$BIN" ]
+[ -r "$CONFIG" ]
+[ -r "$ENV_FILE" ]
+
+. "$ENV_FILE"
+case "$ADDRESS" in
+	*/*) ;;
+	*) ADDRESS="${ADDRESS}/32" ;;
+esac
+SOURCE_ADDRESS="${ADDRESS%/*}"
+
+rm -f "/var/run/amneziawg/${INTERFACE}.sock"
+"$BIN" -f "$INTERFACE" &
+PID=$!
+
+READY=0
+for _ in $(seq 1 10); do
+	if [ -S "/var/run/amneziawg/${INTERFACE}.sock" ]; then
+		READY=1
+		break
+	fi
+	# BusyBox sleep on the router only accepts whole seconds.
+	sleep 1
+done
+[ "$READY" -eq 1 ]
+
+awg setconf "$INTERFACE" "$CONFIG"
+awg set "$INTERFACE" fwmark "$ROUTE_TABLE"
+ip address replace "$ADDRESS" dev "$INTERFACE"
+ip link set mtu "$MTU" up dev "$INTERFACE"
+ifup awg 2>/dev/null || true
+
+ip -4 route replace blackhole default metric 32767 table "$ROUTE_TABLE"
+ip -4 route replace default dev "$INTERFACE" metric 10 table "$ROUTE_TABLE"
+ip -4 rule del priority "$RULE_VPN_PRIORITY" 2>/dev/null || true
+ip -4 rule add priority "$RULE_VPN_PRIORITY" from "${SOURCE_ADDRESS}/32" table "$ROUTE_TABLE"
+
+wait "$PID"

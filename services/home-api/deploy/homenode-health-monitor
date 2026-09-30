@@ -1,0 +1,56 @@
+#!/bin/sh
+
+OUTPUT="${HOMENODE_SYSTEM_HEALTH:-/mnt/ssd/homenode/data/system-health.json}"
+INTERVAL="${HOMENODE_HEALTH_INTERVAL:-60}"
+
+number_or_zero() {
+	case "$1" in ''|*[!0-9.]*) printf '0' ;; *) printf '%s' "$1" ;; esac
+}
+
+collect() {
+	now="$(date +%s)"
+	handshake="$(awg show awg0 latest-handshakes 2>/dev/null | awk 'NR == 1 { print $2 }')"
+	handshake="$(number_or_zero "$handshake")"
+	age=0
+	[ "$handshake" -gt 0 ] 2>/dev/null && age=$((now - handshake))
+
+	vpn_source="$(ip -4 addr show dev awg0 2>/dev/null | awk '/inet / { split($2, address, "/"); print address[1]; exit }')"
+	ping_output=""
+	[ -z "$vpn_source" ] || ping_output="$(ping -I "$vpn_source" -c 3 -W 2 1.1.1.1 2>&1)"
+	loss="$(printf '%s\n' "$ping_output" | awk -F',' '/packet loss/ { gsub(/[^0-9.]/, "", $3); print $3 }')"
+	latency="$(printf '%s\n' "$ping_output" | awk -F'=' '/min\/avg\/max/ { split($2, values, "/"); gsub(/ /, "", values[2]); print values[2] }')"
+	loss="$(number_or_zero "$loss")"
+	latency="$(number_or_zero "$latency")"
+	vpn_status="ok"
+	if [ "$handshake" -eq 0 ] 2>/dev/null || [ "$age" -gt 300 ] 2>/dev/null || awk "BEGIN { exit !($loss >= 50) }"; then
+		vpn_status="down"
+	elif [ "$age" -gt 180 ] 2>/dev/null || awk "BEGIN { exit !($loss > 0 || $latency > 250) }"; then
+		vpn_status="degraded"
+	fi
+
+	rx="$(number_or_zero "$(cat /sys/class/net/awg0/statistics/rx_bytes 2>/dev/null)")"
+	tx="$(number_or_zero "$(cat /sys/class/net/awg0/statistics/tx_bytes 2>/dev/null)")"
+	smart="$(smartctl -d sat -H -A /dev/sda 2>&1)"
+	ssd_status="unknown"
+	printf '%s\n' "$smart" | grep -q 'self-assessment test result: PASSED' && ssd_status="passed"
+	printf '%s\n' "$smart" | grep -q 'self-assessment test result: FAILED' && ssd_status="failed"
+	temp="$(number_or_zero "$(printf '%s\n' "$smart" | awk '$1 == 194 { print $10; exit }')")"
+	reallocated="$(number_or_zero "$(printf '%s\n' "$smart" | awk '$1 == 5 { print $10; exit }')")"
+	crc="$(number_or_zero "$(printf '%s\n' "$smart" | awk '$1 == 199 { print $10; exit }')")"
+	hours="$(number_or_zero "$(printf '%s\n' "$smart" | awk '$1 == 9 { print $10; exit }')")"
+
+	dir="${OUTPUT%/*}"
+	mkdir -p "$dir"
+	tmp="${OUTPUT}.tmp.$$"
+	cat >"$tmp" <<EOF
+{"updated_at":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","vpn_status":"$vpn_status","vpn_latency_ms":$latency,"vpn_packet_loss":$loss,"vpn_handshake_age_seconds":$age,"vpn_rx_bytes":$rx,"vpn_tx_bytes":$tx,"ssd_status":"$ssd_status","ssd_temperature_c":$temp,"ssd_reallocated_sectors":$reallocated,"ssd_crc_errors":$crc,"ssd_power_on_hours":$hours}
+EOF
+	chmod 0640 "$tmp"
+	chown root:transmission "$tmp" 2>/dev/null || true
+	mv "$tmp" "$OUTPUT"
+}
+
+while true; do
+	collect
+	sleep "$INTERVAL"
+done

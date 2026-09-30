@@ -1,0 +1,14 @@
+{
+  "name": "HomeNode",
+  "short_name": "HomeNode",
+  "description": "Домашняя медиатека и загрузки",
+  "start_url": "/#library",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#100e16",
+  "theme_color": "#7657d6",
+  "icons": [
+    {"src": "/icons/app-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable"},
+    {"src": "/icons/apple-touch-icon.png", "sizes": "180x180", "type": "image/png"}
+  ]
+}

@@ -1,0 +1,47 @@
+#!/bin/sh
+
+set -eu
+
+INTERFACE="awg_home"
+BIN="/mnt/ssd/homenode/bin/amneziawg-go"
+CONFIG="/etc/amneziawg/awg_home.conf"
+ENV_FILE="/etc/amneziawg/awg_home.env"
+PID=""
+
+cleanup() {
+	ifdown wg_home 2>/dev/null || true
+	if [ -n "$PID" ]; then
+		kill "$PID" 2>/dev/null || true
+		wait "$PID" 2>/dev/null || true
+	fi
+	rm -f "/var/run/amneziawg/${INTERFACE}.sock"
+}
+
+trap 'cleanup; exit 0' INT TERM
+trap cleanup EXIT
+
+[ -x "$BIN" ]
+[ -r "$CONFIG" ]
+[ -r "$ENV_FILE" ]
+
+. "$ENV_FILE"
+
+rm -f "/var/run/amneziawg/${INTERFACE}.sock"
+"$BIN" -f "$INTERFACE" &
+PID=$!
+
+READY=0
+for _ in $(seq 1 10); do
+	if [ -S "/var/run/amneziawg/${INTERFACE}.sock" ]; then
+		READY=1
+		break
+	fi
+	sleep 1
+done
+[ "$READY" -eq 1 ]
+
+awg setconf "$INTERFACE" "$CONFIG"
+ip link set mtu "$MTU" up dev "$INTERFACE"
+ifup wg_home
+
+wait "$PID"
