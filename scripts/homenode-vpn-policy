@@ -28,6 +28,11 @@ clear_rules() {
 
 ensure_nft_policy() {
 	if nft list table "$NFT_FAMILY" "$NFT_TABLE" >/dev/null 2>&1; then
+		if ! nft list chain "$NFT_FAMILY" "$NFT_TABLE" prerouting 2>/dev/null | grep -Fq 'HomeNode full VPN IPv4'; then
+			nft -f - <<'EOF'
+add rule inet homenode_policy prerouting iifname "br-lan" ether saddr @full_clients meta nfproto ipv4 meta mark set 0x120000 counter comment "HomeNode full VPN IPv4"
+EOF
+		fi
 		return 0
 	fi
 	nft -f - <<'EOF'
@@ -41,6 +46,7 @@ add chain inet homenode_policy prerouting { type filter hook prerouting priority
 add rule inet homenode_policy prerouting iifname "br-lan" ether saddr @smart_clients meta nfproto ipv4 ip daddr @service_v4 meta mark set 0x120000 counter comment "HomeNode selected service DNS"
 add rule inet homenode_policy prerouting iifname "br-lan" ether saddr @smart_clients meta nfproto ipv4 ip daddr @service_networks_v4 meta mark set 0x120000 counter comment "HomeNode selected service networks"
 add rule inet homenode_policy prerouting iifname "br-lan" ether saddr @smart_clients meta nfproto ipv6 ip6 daddr @service_v6 counter drop comment "HomeNode force selected services to IPv4 VPN"
+add rule inet homenode_policy prerouting iifname "br-lan" ether saddr @full_clients meta nfproto ipv4 meta mark set 0x120000 counter comment "HomeNode full VPN IPv4"
 add rule inet homenode_policy prerouting iifname "br-lan" ether saddr @full_clients meta nfproto ipv6 counter drop comment "HomeNode prevent full VPN IPv6 leak"
 EOF
 }

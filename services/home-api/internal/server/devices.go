@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -38,7 +39,7 @@ func (s *Server) devices(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Не удалось прочитать настройки выборочного VPN")
 		return
 	}
-	online := readARP(s.cfg.ARPPath)
+	neighbors := readARP(s.cfg.ARPPath)
 	data, err := os.ReadFile(s.cfg.DHCPLeasesPath)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		writeError(w, http.StatusInternalServerError, "Не удалось прочитать список устройств")
@@ -61,7 +62,17 @@ func (s *Server) devices(w http.ResponseWriter, _ *http.Request) {
 			name = "Устройство " + strings.ToUpper(strings.ReplaceAll(mac[len(mac)-5:], ":", ""))
 		}
 		mode := deviceVPNMode(mac, smart, full)
-		devices = append(devices, Device{MAC: mac, IP: fields[2], Name: name, Online: online[mac], VPN: mode != vpnModeDirect, VPNMode: mode})
+		_, online := neighbors[mac]
+		devices = append(devices, Device{MAC: mac, IP: fields[2], Name: name, Online: online, VPN: mode != vpnModeDirect, VPNMode: mode})
+		seen[mac] = true
+	}
+	for mac, ip := range neighbors {
+		if seen[mac] {
+			continue
+		}
+		mode := deviceVPNMode(mac, smart, full)
+		name := "Устройство " + strings.ToUpper(strings.ReplaceAll(mac[len(mac)-5:], ":", ""))
+		devices = append(devices, Device{MAC: mac, IP: ip, Name: name, Online: true, VPN: mode != vpnModeDirect, VPNMode: mode})
 		seen[mac] = true
 	}
 	selected := make(map[string]bool, len(smart)+len(full))
@@ -206,18 +217,23 @@ func writeMACSet(path string, selected map[string]bool) error {
 	return os.Rename(temporaryPath, path)
 }
 
-func readARP(path string) map[string]bool {
-	result := make(map[string]bool)
+func readARP(path string) map[string]string {
+	result := make(map[string]string)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return result
 	}
 	for _, line := range strings.Split(string(data), "\n") {
 		fields := strings.Fields(line)
-		if len(fields) >= 4 && fields[2] == "0x2" {
-			if mac, ok := normalizeMAC(fields[3]); ok {
-				result[mac] = true
-			}
+		if len(fields) < 6 || fields[5] != "br-lan" || net.ParseIP(fields[0]).To4() == nil {
+			continue
+		}
+		flags, err := strconv.ParseUint(fields[2], 0, 32)
+		if err != nil || flags&0x2 == 0 {
+			continue
+		}
+		if mac, ok := normalizeMAC(fields[3]); ok {
+			result[mac] = fields[0]
 		}
 	}
 	return result

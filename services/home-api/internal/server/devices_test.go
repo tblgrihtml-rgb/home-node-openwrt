@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
@@ -12,6 +13,53 @@ import (
 
 	"homenode/services/home-api/internal/config"
 )
+
+func TestDevicesIncludesStaticLANNeighbors(t *testing.T) {
+	directory := t.TempDir()
+	leasesPath := filepath.Join(directory, "dhcp.leases")
+	arpPath := filepath.Join(directory, "arp")
+	fullPath := filepath.Join(directory, "vpn-devices")
+	if err := os.WriteFile(leasesPath, []byte("123 02:00:00:00:00:01 192.0.2.10 laptop *\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	arp := "IP address HW type Flags HW address Mask Device\n" +
+		"192.0.2.10 0x1 0x2 02:00:00:00:00:01 * br-lan\n" +
+		"192.0.2.185 0x1 0x2 02:00:00:00:00:02 * br-lan\n" +
+		"198.51.100.1 0x1 0x2 02:00:00:00:00:03 * wan\n" +
+		"192.0.2.99 0x1 0x0 02:00:00:00:00:04 * br-lan\n"
+	if err := os.WriteFile(arpPath, []byte(arp), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fullPath, []byte("02:00:00:00:00:02\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{cfg: config.Config{
+		VPNDevicesPath: fullPath, VPNSmartDevicesPath: filepath.Join(directory, "vpn-smart-devices"),
+		DHCPLeasesPath: leasesPath, ARPPath: arpPath,
+	}}
+	response := httptest.NewRecorder()
+	s.devices(response, httptest.NewRequest(http.MethodGet, "/api/devices", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("devices failed: %d %s", response.Code, response.Body.String())
+	}
+	var devices []Device
+	if err := json.Unmarshal(response.Body.Bytes(), &devices); err != nil {
+		t.Fatal(err)
+	}
+	if len(devices) != 2 {
+		t.Fatalf("expected one DHCP and one static LAN device, got %#v", devices)
+	}
+	byMAC := map[string]Device{}
+	for _, device := range devices {
+		byMAC[device.MAC] = device
+	}
+	if got := byMAC["02:00:00:00:00:01"]; got.Name != "laptop" || !got.Online {
+		t.Fatalf("DHCP device was lost or duplicated: %#v", got)
+	}
+	if got := byMAC["02:00:00:00:00:02"]; got.IP != "192.0.2.185" || !got.Online || got.VPNMode != vpnModeFull {
+		t.Fatalf("static VPN device was not discovered: %#v", got)
+	}
+}
 
 func TestMACSetRoundTrip(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "vpn-devices")
