@@ -11,7 +11,7 @@
   <link rel="manifest" href="/manifest.webmanifest?v=20260930-5">
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=20260930-5">
   <script src="/theme.js?v=20260930-5"></script>
-  <link rel="stylesheet" href="/styles.css?v=20260930-5">
+  <link rel="stylesheet" href="/styles.css?v=20261006-4">
 </head>
 <body>
   <div class="app-shell">
@@ -193,24 +193,40 @@
       <div class="player-heading">
         <div><p class="eyebrow">Локальная медиатека</p><h2 id="player-title">Просмотр</h2></div>
         <div class="player-heading-actions">
+          <button id="ambient-toggle" class="secondary-button ambient-toggle" type="button" aria-pressed="true">Подсветка: вкл</button>
+          <button id="player-fullscreen" class="secondary-button" type="button">На весь экран</button>
           <button id="next-episode" class="secondary-button" type="button" hidden>Следующая серия</button>
           <button id="close-player" class="icon-button" type="button" aria-label="Закрыть">×</button>
         </div>
       </div>
-      <video id="media-player" controls playsinline preload="metadata"></video>
-      <audio id="audio-player" controls preload="metadata" hidden></audio>
-      <div class="player-guidance">
-        <p id="player-note" class="player-note"></p>
-        <button id="player-direct" class="text-button" type="button" hidden>Открыть исходный файл</button>
+      <div class="player-body">
+        <div class="player-main">
+          <div id="player-stage" class="player-stage">
+            <div class="player-screen">
+              <canvas id="ambient-canvas" class="ambient-canvas" width="32" height="18" aria-hidden="true"></canvas>
+              <video id="media-player" controls playsinline preload="metadata"></video>
+              <canvas id="ambient-cover" class="ambient-cover" width="96" height="54" aria-hidden="true"></canvas>
+            </div>
+            <button id="exit-fullscreen" class="player-fullscreen-exit" type="button" aria-label="Выйти из полноэкранного режима">Выйти из полного экрана</button>
+            <div id="autoplay-countdown" class="autoplay-countdown" hidden>
+              <span>Следующая серия через <strong id="autoplay-seconds">8</strong> сек.</span>
+              <button id="cancel-autoplay" class="text-button" type="button">Отмена</button>
+            </div>
+          </div>
+          <audio id="audio-player" controls preload="metadata" hidden></audio>
+          <div class="player-guidance">
+            <p id="player-note" class="player-note"></p>
+            <button id="player-direct" class="text-button" type="button" hidden>Открыть исходный файл</button>
+          </div>
+        </div>
+        <aside class="player-sidebar" aria-label="Список серий и файлов">
+          <div class="player-sidebar-heading"><strong>Серии и файлы</strong><span id="episode-count"></span></div>
+          <div id="episode-list" class="episode-list"></div>
+        </aside>
       </div>
-      <div id="autoplay-countdown" class="autoplay-countdown" hidden>
-        <span>Следующая серия через <strong id="autoplay-seconds">8</strong> сек.</span>
-        <button id="cancel-autoplay" class="text-button" type="button">Отмена</button>
-      </div>
-      <div id="episode-list" class="episode-list"></div>
     </div>
   </dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="/app.js?v=20260930-5" defer></script>
+  <script src="/app.js?v=20261006-4" defer></script>
 </body>
 </html>

@@ -13,6 +13,157 @@ const isAppleWebKit = /AppleWebKit/i.test(navigator.userAgent)
     || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
     || (/Safari/i.test(navigator.userAgent) && !/Chrome|Chromium|Edg/i.test(navigator.userAgent)));
 const isTailscaleHTTPS = location.protocol === 'https:' && /\.ts\.net$/i.test(location.hostname);
+const ambientStorageKey = 'homenode-ambient-enabled';
+const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+const ambientState = {enabled: readAmbientPreference(), timer: null, failed: false, bars: null, lastBarsCheck: 0};
+const barSample = document.createElement('canvas');
+barSample.width = 96;
+barSample.height = 54;
+const ambientSample = document.createElement('canvas');
+ambientSample.width = 96;
+ambientSample.height = 54;
+
+function readAmbientPreference() {
+  try {
+    const saved = localStorage.getItem(ambientStorageKey);
+    return saved === null ? !reducedMotion.matches : saved === 'true';
+  } catch (_) {
+    return !reducedMotion.matches;
+  }
+}
+
+function stopAmbient(clear = false) {
+  if (ambientState.timer) window.clearInterval(ambientState.timer);
+  ambientState.timer = null;
+  if (!clear) return;
+  const canvas = $('#ambient-canvas');
+  canvas.getContext('2d')?.clearRect(0, 0, canvas.width, canvas.height);
+  const cover = $('#ambient-cover');
+  cover.getContext('2d')?.clearRect(0, 0, cover.width, cover.height);
+  $('#player-stage').classList.remove('ambient-ready');
+}
+
+function detectEncodedBars(video) {
+  const context = barSample.getContext('2d', {willReadFrequently: true});
+  if (!context) return {left: 0, right: 0, top: 0, bottom: 0};
+  context.drawImage(video, 0, 0, barSample.width, barSample.height);
+  const {data} = context.getImageData(0, 0, barSample.width, barSample.height);
+  const darkLine = (vertical, index) => {
+    let dark = 0;
+    let count = 0;
+    const limit = vertical ? barSample.height : barSample.width;
+    for (let point = Math.floor(limit * .15); point < Math.ceil(limit * .85); point += 3) {
+      const x = vertical ? index : point;
+      const y = vertical ? point : index;
+      const pixel = (y * barSample.width + x) * 4;
+      if (Math.max(data[pixel], data[pixel + 1], data[pixel + 2]) < 24) dark += 1;
+      count += 1;
+    }
+    return count > 0 && dark / count >= .9;
+  };
+  const scan = (vertical, reverse) => {
+    const size = vertical ? barSample.width : barSample.height;
+    const max = Math.floor(size * .26);
+    let edge = 0;
+    while (edge < max && darkLine(vertical, reverse ? size - 1 - edge : edge)) edge += 1;
+    return edge;
+  };
+  let left = scan(true, false);
+  let right = scan(true, true);
+  let top = scan(false, false);
+  let bottom = scan(false, true);
+  // Полосы должны быть симметричными, иначе это может быть просто тёмная сцена.
+  if (left < 3 || right < 3 || Math.abs(left - right) > 4) left = right = 0;
+  if (top < 2 || bottom < 2 || Math.abs(top - bottom) > 3) top = bottom = 0;
+  return {left: left / barSample.width, right: right / barSample.width,
+    top: top / barSample.height, bottom: bottom / barSample.height};
+}
+
+function drawAmbientCover(video, canvas) {
+  const cover = $('#ambient-cover');
+  const context = cover.getContext('2d');
+  if (!context) return;
+  context.clearRect(0, 0, cover.width, cover.height);
+  if (!window.matchMedia('(min-width: 821px)').matches && document.fullscreenElement !== $('#player-stage')) return;
+  const screen = $('.player-screen').getBoundingClientRect();
+  const frame = video.getBoundingClientRect();
+  if (!screen.width || !screen.height || !frame.width || !frame.height) return;
+  context.drawImage(canvas, 0, 0, cover.width, cover.height);
+  const bars = ambientState.bars;
+  const left = ((frame.left - screen.left) + frame.width * bars.left) / screen.width * cover.width;
+  const top = ((frame.top - screen.top) + frame.height * bars.top) / screen.height * cover.height;
+  const width = frame.width * (1 - bars.left - bars.right) / screen.width * cover.width;
+  const height = frame.height * (1 - bars.top - bars.bottom) / screen.height * cover.height;
+  context.clearRect(Math.max(0, left), Math.max(0, top), width, height);
+}
+
+function drawAmbientFrame() {
+  const video = $('#media-player');
+  if (!ambientState.enabled || ambientState.failed || !$('#media-dialog').open || document.hidden
+      || video.paused || video.ended || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
+  const canvas = $('#ambient-canvas');
+  try {
+    const context = canvas.getContext('2d', {alpha: false});
+    if (!context) throw new Error('Canvas unavailable');
+    const now = Date.now();
+    if (!ambientState.bars || now - ambientState.lastBarsCheck > 2500) {
+      try { ambientState.bars = detectEncodedBars(video); }
+      catch (_) { ambientState.bars = {left: 0, right: 0, top: 0, bottom: 0}; }
+      ambientState.lastBarsCheck = now;
+    }
+    const bars = ambientState.bars;
+    const sampleContext = ambientSample.getContext('2d');
+    if (!sampleContext) throw new Error('Canvas unavailable');
+    sampleContext.drawImage(video, 0, 0, ambientSample.width, ambientSample.height);
+    const x = ambientSample.width * bars.left;
+    const y = ambientSample.height * bars.top;
+    const width = ambientSample.width * (1 - bars.left - bars.right);
+    const height = ambientSample.height * (1 - bars.top - bars.bottom);
+    const edgeWidth = Math.max(1, width * .08);
+    const edgeHeight = Math.max(1, height * .08);
+    const canvasWidth = canvas.width;
+    const canvasHeight = canvas.height;
+    // Растягиваем именно ближайшие края кадра к соответствующим сторонам экрана.
+    context.drawImage(ambientSample, x, y, width, height, 0, 0, canvasWidth, canvasHeight);
+    context.drawImage(ambientSample, x, y, width, edgeHeight, 0, 0, canvasWidth, canvasHeight / 2);
+    context.drawImage(ambientSample, x, y + height - edgeHeight, width, edgeHeight,
+      0, canvasHeight / 2, canvasWidth, canvasHeight / 2);
+    context.drawImage(ambientSample, x, y, edgeWidth, height, 0, 0, canvasWidth / 4, canvasHeight);
+    context.drawImage(ambientSample, x + width - edgeWidth, y, edgeWidth, height,
+      canvasWidth * .75, 0, canvasWidth / 4, canvasHeight);
+    drawAmbientCover(video, canvas);
+    $('#player-stage').classList.add('ambient-ready');
+  } catch (_) {
+    ambientState.failed = true;
+    stopAmbient(true); // Safari или защищённый поток могут запретить чтение кадров.
+  }
+}
+
+function startAmbient() {
+  stopAmbient();
+  if (!ambientState.enabled || ambientState.failed || document.hidden || !$('#media-dialog').open || $('#media-player').paused) return;
+  drawAmbientFrame();
+  // На компьютере цвет должен успевать за сменой сцен; на телефоне экономим батарею.
+  const interval = window.matchMedia('(min-width: 821px)').matches ? 100 : 180;
+  ambientState.timer = window.setInterval(drawAmbientFrame, interval);
+}
+
+function syncAmbientToggle() {
+  const toggle = $('#ambient-toggle');
+  toggle.textContent = ambientState.enabled ? 'Подсветка: вкл' : 'Подсветка: выкл';
+  toggle.setAttribute('aria-pressed', String(ambientState.enabled));
+  $('#player-stage').classList.toggle('ambient-off', !ambientState.enabled);
+}
+
+function fitVideoToScreen() {
+  const video = $('#media-player');
+  const screen = $('.player-screen');
+  if (!video.videoWidth || !video.videoHeight || !screen.clientWidth || !screen.clientHeight) return;
+  const videoAspect = video.videoWidth / video.videoHeight;
+  const screenAspect = screen.clientWidth / screen.clientHeight;
+  video.style.width = videoAspect < screenAspect ? 'auto' : '100%';
+  video.style.height = videoAspect < screenAspect ? '100%' : 'auto';
+}
 
 const api = async (path, options = {}) => {
   const response = await fetch(path, options);
@@ -392,6 +543,10 @@ function saveCurrentProgress(completed = false, force = false, keepalive = false
 
 function playFile(item, file, selectedButton, forceDirect = false, skipPreviousSave = false) {
   cancelAutoplayCountdown();
+  stopAmbient(true);
+  ambientState.failed = false;
+  ambientState.bars = null;
+  ambientState.lastBarsCheck = 0;
   const isMusic = item.category === 'music';
   const player = isMusic ? $('#audio-player') : $('#media-player');
   const otherPlayer = isMusic ? $('#media-player') : $('#audio-player');
@@ -413,6 +568,10 @@ function playFile(item, file, selectedButton, forceDirect = false, skipPreviousS
   otherPlayer.removeAttribute('src');
   otherPlayer.hidden = true;
   player.hidden = false;
+  if (!isMusic) {
+    player.style.width = '100%';
+    player.style.height = 'auto';
+  }
   player.src = compatible ? compatibleStreamURL(file, cachedCompatible ? 0 : resumeAt, cachedCompatible) : streamURL(file);
   player.dataset.mode = cachedCompatible ? 'compatible-cache' : compatible ? 'compatible' : 'direct';
   player.load();
@@ -436,7 +595,12 @@ function playFile(item, file, selectedButton, forceDirect = false, skipPreviousS
       } catch (_) { /* Формат может не поддерживать точную перемотку. */ }
     }, {once: true});
   }
-  player.play().catch(() => {});
+  player.play().catch((error) => {
+    if (state.playingFile?.path !== file.path || error?.name === 'AbortError') return;
+    $('#player-note').textContent = error?.name === 'NotAllowedError'
+      ? 'Браузер остановил автоматический запуск. Нажмите ▶ на видео, чтобы продолжить.'
+      : 'Не удалось начать воспроизведение. Попробуйте открыть исходный файл или VLC.';
+  });
 }
 
 function openPlayer(item, preferredPath = '') {
@@ -446,6 +610,12 @@ function openPlayer(item, preferredPath = '') {
   list.replaceChildren();
   $('#player-title').textContent = item.title;
   const isMusic = item.category === 'music';
+  $('.player-shell', dialog).classList.toggle('is-music', isMusic);
+  $('#ambient-toggle').hidden = isMusic;
+  $('#player-fullscreen').hidden = isMusic || typeof $('#player-stage').requestFullscreen !== 'function';
+  $('#episode-count').textContent = String(files.length);
+  $('.player-sidebar-heading strong').textContent = isMusic ? 'Треки' : 'Серии и файлы';
+  syncAmbientToggle();
   $('.player-heading .eyebrow').textContent = isMusic ? 'Локальная музыка' : 'Локальная медиатека';
   const buttons = new Map();
   files.forEach((file, index) => {
@@ -547,6 +717,29 @@ async function setWatchedStatus(item, file, completed) {
 
 $('#next-episode').addEventListener('click', playNextEpisode);
 $('#cancel-autoplay').addEventListener('click', cancelAutoplayCountdown);
+$('#ambient-toggle').addEventListener('click', () => {
+  ambientState.enabled = !ambientState.enabled;
+  try { localStorage.setItem(ambientStorageKey, String(ambientState.enabled)); } catch (_) { /* Частный режим может запретить запись. */ }
+  syncAmbientToggle();
+  if (ambientState.enabled) startAmbient();
+  else stopAmbient(true);
+});
+
+$('#player-fullscreen').addEventListener('click', () => {
+  $('#player-stage').requestFullscreen().catch(() => toast('Полный экран недоступен в этом браузере'));
+});
+$('#exit-fullscreen').addEventListener('click', () => {
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+});
+document.addEventListener('fullscreenchange', fitVideoToScreen);
+$('#media-player').addEventListener('loadedmetadata', fitVideoToScreen);
+window.addEventListener('resize', fitVideoToScreen);
+if ('ResizeObserver' in window) new ResizeObserver(fitVideoToScreen).observe($('.player-screen'));
+
+$('#media-player').addEventListener('playing', startAmbient);
+$('#media-player').addEventListener('pause', () => stopAmbient());
+$('#media-player').addEventListener('seeking', () => stopAmbient());
+$('#media-player').addEventListener('seeked', startAmbient);
 
 $('#player-direct').addEventListener('click', () => {
   if (state.playingItem && state.playingFile) {
@@ -555,6 +748,7 @@ $('#player-direct').addEventListener('click', () => {
 });
 
 $('#media-player').addEventListener('error', () => {
+  stopAmbient(true);
   const compatible = $('#media-player').dataset.mode?.startsWith('compatible');
   $('#player-note').textContent = compatible
     ? 'Safari не смог воспроизвести кодек этого файла. Нажмите «Открыть исходный файл» или откройте папку HomeNode через VLC.'
@@ -568,6 +762,7 @@ $('#audio-player').addEventListener('error', () => {
 $('#media-player').addEventListener('timeupdate', () => saveCurrentProgress());
 $('#media-player').addEventListener('pause', () => saveCurrentProgress(false, true));
 $('#media-player').addEventListener('ended', () => {
+  stopAmbient();
   saveCurrentProgress(true, true);
   renderContinueWatching();
   renderLibrary();
@@ -576,6 +771,7 @@ $('#media-player').addEventListener('ended', () => {
 
 function closePlayer() {
   cancelAutoplayCountdown();
+  stopAmbient(true);
   saveCurrentProgress(false, true);
   [$('#media-player'), $('#audio-player')].forEach((player) => {
     player.pause();
@@ -595,9 +791,15 @@ function closePlayer() {
 
 $('#close-player').addEventListener('click', closePlayer);
 $('#media-dialog').addEventListener('click', (event) => { if (event.target === $('#media-dialog')) closePlayer(); });
+$('#media-dialog').addEventListener('cancel', (event) => { event.preventDefault(); closePlayer(); });
 window.addEventListener('pagehide', () => saveCurrentProgress(false, true, true));
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') saveCurrentProgress(false, true, true);
+  if (document.visibilityState === 'hidden') {
+    saveCurrentProgress(false, true, true);
+    stopAmbient();
+  } else {
+    startAmbient();
+  }
 });
 
 function renderContinueWatching() {
