@@ -165,6 +165,18 @@ function fitVideoToScreen() {
   video.style.height = videoAspect < screenAspect ? '100%' : 'auto';
 }
 
+function syncFullscreenControls() {
+  const video = $('#media-player');
+  const stage = $('#player-stage');
+  // Встроенная кнопка разворачивает только video и оставляет чёрные поля без подсветки.
+  // На телефоне и в браузерах без Fullscreen API сохраняем штатное управление.
+  if (window.matchMedia('(min-width: 821px)').matches && typeof stage.requestFullscreen === 'function') {
+    video.setAttribute('controlslist', 'nofullscreen');
+  } else {
+    video.removeAttribute('controlslist');
+  }
+}
+
 const api = async (path, options = {}) => {
   const response = await fetch(path, options);
   const payload = await response.json().catch(() => ({}));
@@ -733,8 +745,9 @@ $('#exit-fullscreen').addEventListener('click', () => {
 });
 document.addEventListener('fullscreenchange', fitVideoToScreen);
 $('#media-player').addEventListener('loadedmetadata', fitVideoToScreen);
-window.addEventListener('resize', fitVideoToScreen);
+window.addEventListener('resize', () => { fitVideoToScreen(); syncFullscreenControls(); });
 if ('ResizeObserver' in window) new ResizeObserver(fitVideoToScreen).observe($('.player-screen'));
+syncFullscreenControls();
 
 $('#media-player').addEventListener('playing', startAmbient);
 $('#media-player').addEventListener('pause', () => stopAmbient());

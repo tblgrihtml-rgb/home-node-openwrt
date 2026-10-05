@@ -262,6 +262,9 @@ h3 { margin-bottom: 6px; font-size: 17px; line-height: 1.28; letter-spacing: -.0
 }
 .player-stage.ambient-off .player-screen { background: #050408; }
 #media-player { position: relative; z-index: 1; display: block; width: 100%; height: auto; max-width: 100%; max-height: 100%; object-fit: contain; background: transparent; }
+@media (min-width: 821px) {
+  #media-player[controlslist~="nofullscreen"]::-webkit-media-controls-fullscreen-button { display: none; }
+}
 .player-fullscreen-exit { display: none; }
 .player-stage:fullscreen { width: 100vw; height: 100vh; min-height: 0; border: 0; border-radius: 0; background: #120c1d; }
 .player-stage:fullscreen .player-screen { border-radius: 0; }
