@@ -11,7 +11,7 @@
   <link rel="manifest" href="/manifest.webmanifest?v=20260930-5">
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=20260930-5">
   <script src="/theme.js?v=20260930-5"></script>
-  <link rel="stylesheet" href="/styles.css?v=20261014-1">
+  <link rel="stylesheet" href="/styles.css?v=20261014-2">
 </head>
 <body>
   <div class="app-shell">
@@ -230,6 +230,7 @@
         <button id="close-manga-reader" class="manga-reader-close" type="button" aria-label="Закрыть чтение">×</button>
         <div class="manga-reader-heading"><strong id="manga-reader-title">Манга</strong><span id="manga-reader-page-label">Страница 1</span></div>
         <div class="manga-reader-options">
+          <button id="manga-translate-page" type="button" title="Распознать страницу на телефоне и открыть перевод">Перевести</button>
           <button id="manga-direction" type="button" aria-pressed="true" title="Изменить направление чтения">Справа налево</button>
           <button id="manga-fit" type="button" aria-pressed="false" title="Изменить подгонку страницы">По высоте</button>
           <button id="manga-theme" type="button" aria-pressed="true" title="Изменить фон читалки">Тёмный фон</button>
@@ -240,6 +241,19 @@
         <img id="manga-page-image" class="manga-page-image fit-height" alt="Страница манги" draggable="false">
         <button id="manga-next" class="manga-page-arrow manga-page-next" type="button" aria-label="Следующая страница">›</button>
       </main>
+      <section id="manga-translation-panel" class="manga-translation-panel" aria-label="Распознанный текст страницы" hidden>
+        <div class="manga-translation-heading">
+          <strong>Текст страницы</strong>
+          <span id="manga-translation-status" role="status" aria-live="polite">Распознавание выполняется на этом устройстве.</span>
+          <button id="manga-close-translation" type="button" aria-label="Закрыть распознанный текст">×</button>
+        </div>
+        <textarea id="manga-recognized-text" aria-label="Распознанный текст, можно исправить перед переводом" spellcheck="false" placeholder="Распознанный английский текст появится здесь; его можно поправить."></textarea>
+        <div class="manga-translation-actions">
+          <button id="manga-open-translation" type="button" disabled>Открыть в Google Переводчике</button>
+          <button id="manga-copy-recognized" type="button" disabled>Скопировать текст</button>
+        </div>
+        <p class="manga-translation-note">Изображение остаётся в читалке. В Google отправится только распознанный текст.</p>
+      </section>
       <footer class="manga-reader-footer">
         <button id="manga-prev-bottom" class="manga-footer-button" type="button" aria-label="Предыдущая страница">‹</button>
         <input id="manga-page-range" type="range" min="0" max="0" value="0" aria-label="Перейти к странице">
@@ -249,6 +263,6 @@
     </div>
   </dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="/app.js?v=20261014-1" defer></script>
+  <script src="/app.js?v=20261014-2" defer></script>
 </body>
 </html>

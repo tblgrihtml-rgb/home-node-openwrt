@@ -7,7 +7,7 @@ const mangaPreferences = (() => {
 
 const state = {
   source: 'all', library: [], libraryCategory: 'all', downloads: [], downloadFilter: 'all', selectedDownloadID: null,
-  mangaBooks: [], mangaBook: null, mangaPage: 0,
+  mangaBooks: [], mangaBook: null, mangaPage: 0, mangaOCRCache: new Map(), mangaOCRJob: 0,
   mangaRTL: mangaPreferences.rtl !== false, mangaFit: mangaPreferences.fit === 'width' ? 'width' : 'height',
   mangaLight: mangaPreferences.light === true, mangaSaveTimer: null,
   watchProgress: [], watchProgressByPath: new Map(),
@@ -699,6 +699,135 @@ function mangaPageURL(book, page) {
   return `/api/manga/page?path=${encodeURIComponent(book.path)}&page=${page}`;
 }
 
+const TESSERACT_VERSION = '5.1.1';
+let tesseractScriptPromise = null;
+
+function loadTesseract() {
+  if (window.Tesseract) return Promise.resolve(window.Tesseract);
+  if (tesseractScriptPromise) return tesseractScriptPromise;
+  tesseractScriptPromise = new Promise((resolve, reject) => {
+    const script = element('script');
+    script.src = `https://cdn.jsdelivr.net/npm/tesseract.js@${TESSERACT_VERSION}/dist/tesseract.min.js`;
+    script.integrity = 'sha384-GJqSu7vueQ9qN0E9yLPb3Wtpd7OrgK8KmYzC8T1IysG1bcvxvIO4qtYR/D3A991F';
+    script.crossOrigin = 'anonymous';
+    script.onload = () => window.Tesseract ? resolve(window.Tesseract) : reject(new Error('Библиотека распознавания не загрузилась'));
+    script.onerror = () => reject(new Error('Не удалось загрузить модуль распознавания. Проверьте интернет на телефоне.'));
+    document.head.append(script);
+  }).catch((error) => {
+    tesseractScriptPromise = null;
+    throw error;
+  });
+  return tesseractScriptPromise;
+}
+
+function mangaOCRKey(book, page) {
+  return `${book.path}\u0000${page}`;
+}
+
+function setMangaTranslationStatus(message) {
+  $('#manga-translation-status').textContent = message;
+}
+
+function setMangaTranslationVisible(visible) {
+  const panel = $('#manga-translation-panel');
+  panel.hidden = !visible;
+  $('#manga-reader-dialog .manga-reader-shell').classList.toggle('translation-open', visible);
+}
+
+function googleTranslateURL(text) {
+  const query = new URLSearchParams({sl: 'en', tl: 'ru', text, op: 'translate'});
+  return `https://translate.google.com/?${query}`;
+}
+
+function updateGoogleTranslateButton() {
+  const text = $('#manga-recognized-text').value.trim();
+  $('#manga-open-translation').disabled = !text;
+  $('#manga-copy-recognized').disabled = !text;
+}
+
+async function recognizeMangaPage(book, page, job, popup) {
+  const key = mangaOCRKey(book, page);
+  let text = state.mangaOCRCache.get(key);
+  if (!text) {
+    const tesseract = await loadTesseract();
+    const image = $('#manga-page-image');
+    if (!image.complete || !image.naturalWidth) throw new Error('Страница ещё не загрузилась. Попробуйте снова.');
+    const maxSide = Math.max(image.naturalWidth, image.naturalHeight);
+    const scale = Math.min(1, 2000 / maxSide);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const context = canvas.getContext('2d', {willReadFrequently: true});
+    if (!context) throw new Error('Браузер не смог подготовить изображение страницы.');
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+    let worker;
+    try {
+      worker = await tesseract.createWorker('eng', 1, {
+        workerPath: `https://cdn.jsdelivr.net/npm/tesseract.js@${TESSERACT_VERSION}/dist/worker.min.js`,
+        corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.0.0',
+        langPath: 'https://tessdata.projectnaptha.com/4.0.0_fast',
+        logger: (progress) => {
+          if (progress.status === 'recognizing text') {
+            setMangaTranslationStatus(`Распознаём текст на телефоне… ${Math.round((progress.progress || 0) * 100)}%`);
+          } else if (progress.status === 'loading language traineddata') {
+            setMangaTranslationStatus('Первый запуск: загружаем английский словарь распознавания…');
+          } else {
+            setMangaTranslationStatus('Запускаем распознавание на телефоне…');
+          }
+        },
+      });
+      const result = await worker.recognize(canvas);
+      text = (result.data.text || '').trim();
+    } finally {
+      if (worker) await worker.terminate();
+      canvas.width = 1;
+      canvas.height = 1;
+    }
+    if (!text) throw new Error('На странице не удалось распознать текст.');
+    if (text.length > 12000) text = text.slice(0, 12000);
+    state.mangaOCRCache.set(key, text);
+    if (state.mangaOCRCache.size > 12) state.mangaOCRCache.delete(state.mangaOCRCache.keys().next().value);
+  }
+  if (job !== state.mangaOCRJob || state.mangaBook?.path !== book.path || state.mangaPage !== page) {
+    if (popup && !popup.closed) popup.close();
+    return;
+  }
+  $('#manga-recognized-text').value = text;
+  updateGoogleTranslateButton();
+  if (popup && !popup.closed) {
+    popup.location.replace(googleTranslateURL(text));
+    setMangaTranslationStatus('Распознавание готово; текст страницы отправлен в Google Переводчик.');
+  } else {
+    setMangaTranslationStatus('Готово. Проверьте распознанный текст и нажмите «Открыть в Google Переводчике».');
+  }
+}
+
+async function translateMangaPage() {
+  const book = state.mangaBook;
+  if (!book) return;
+  const page = state.mangaPage;
+  const job = ++state.mangaOCRJob;
+  const popup = window.open('about:blank', '_blank');
+  if (popup) {
+    try { popup.opener = null; } catch (_) { /* Some mobile browsers make opener read-only. */ }
+  }
+  setMangaTranslationVisible(true);
+  $('#manga-recognized-text').value = '';
+  $('#manga-open-translation').disabled = true;
+  $('#manga-copy-recognized').disabled = true;
+  $('#manga-translate-page').disabled = true;
+  setMangaTranslationStatus('Подготовка распознавания на телефоне…');
+  try {
+    await recognizeMangaPage(book, page, job, popup);
+  } catch (error) {
+    if (popup && !popup.closed) popup.close();
+    if (job === state.mangaOCRJob) setMangaTranslationStatus(error.message || 'Не удалось распознать страницу.');
+  } finally {
+    $('#manga-translate-page').disabled = false;
+  }
+}
+
 function renderManga() {
   const container = $('#manga-results');
   const query = $('#manga-query').value.trim().toLocaleLowerCase();
@@ -809,6 +938,8 @@ function setMangaPage(page, persist = true) {
   if (!book) return;
   const bounded = Math.max(0, Math.min(book.page_count - 1, Number(page) || 0));
   if (bounded === state.mangaPage) return;
+  state.mangaOCRJob += 1;
+  setMangaTranslationVisible(false);
   state.mangaPage = bounded;
   updateMangaReader();
   if (persist) {
@@ -829,6 +960,8 @@ function saveMangaPreferences() {
 }
 
 function openMangaReader(book) {
+  state.mangaOCRJob += 1;
+  setMangaTranslationVisible(false);
   state.mangaBook = book;
   state.mangaPage = Math.max(0, Math.min(book.page_count - 1, Number(book.progress_page) || 0));
   updateMangaReader();
@@ -839,6 +972,7 @@ function openMangaReader(book) {
 
 function closeMangaReader() {
   if (!$('#manga-reader-dialog').open) return;
+  state.mangaOCRJob += 1;
   clearTimeout(state.mangaSaveTimer);
   saveMangaProgress();
   $('#manga-reader-dialog').close();
@@ -859,6 +993,23 @@ $('#manga-prev-bottom').addEventListener('click', () => stepMangaPage(-1));
 $('#manga-next').addEventListener('click', () => stepMangaPage(1));
 $('#manga-next-bottom').addEventListener('click', () => stepMangaPage(1));
 $('#manga-page-range').addEventListener('input', (event) => setMangaPage(event.currentTarget.value));
+$('#manga-translate-page').addEventListener('click', translateMangaPage);
+$('#manga-close-translation').addEventListener('click', () => {
+  state.mangaOCRJob += 1;
+  setMangaTranslationVisible(false);
+});
+$('#manga-open-translation').addEventListener('click', () => {
+  const text = $('#manga-recognized-text').value.trim();
+  if (!text) return;
+  window.open(googleTranslateURL(text), '_blank', 'noopener,noreferrer');
+});
+$('#manga-recognized-text').addEventListener('input', updateGoogleTranslateButton);
+$('#manga-copy-recognized').addEventListener('click', async () => {
+  const text = $('#manga-recognized-text').value.trim();
+  if (!text) return;
+  await safeCopy(text);
+  toast('Распознанный текст скопирован');
+});
 $('#manga-direction').addEventListener('click', () => { state.mangaRTL = !state.mangaRTL; saveMangaPreferences(); updateMangaReader(); });
 $('#manga-fit').addEventListener('click', () => { state.mangaFit = state.mangaFit === 'height' ? 'width' : 'height'; saveMangaPreferences(); updateMangaReader(); });
 $('#manga-theme').addEventListener('click', () => { state.mangaLight = !state.mangaLight; saveMangaPreferences(); updateMangaReader(); });
