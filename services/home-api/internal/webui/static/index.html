@@ -11,7 +11,7 @@
   <link rel="manifest" href="/manifest.webmanifest?v=20260930-5">
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=20260930-5">
   <script src="/theme.js?v=20260930-5"></script>
-  <link rel="stylesheet" href="/styles.css?v=20261006-6">
+  <link rel="stylesheet" href="/styles.css?v=20261014-1">
 </head>
 <body>
   <div class="app-shell">
@@ -23,6 +23,7 @@
       <nav class="side-nav">
         <button class="nav-item active" data-view="search"><img src="/icons/search.svg" alt="">Поиск</button>
         <button class="nav-item" data-view="library"><img src="/icons/library.svg" alt="">Видео</button>
+        <button class="nav-item" data-view="manga"><img src="/icons/library.svg" alt="">Манга</button>
         <button class="nav-item" data-view="music"><img src="/icons/music.svg" alt="">Музыка</button>
         <button class="nav-item" data-view="downloads"><img src="/icons/download.svg" alt="">Загрузки <span id="download-count" class="nav-count" hidden></span></button>
         <button class="nav-item" data-view="history"><img src="/icons/history.svg" alt="">История</button>
@@ -132,6 +133,18 @@
         <div id="music-results" class="library-grid"></div>
       </section>
 
+      <section id="view-manga" class="view">
+        <div class="page-heading">
+          <div><p class="eyebrow">Чтение с SSD · HomeNode</p><h1>Манга</h1><p class="lead">Откройте книгу, чтобы читать прямо в браузере. Место чтения сохраняется для всех ваших устройств.</p></div>
+          <button id="refresh-manga" class="icon-button" title="Обновить библиотеку манги" aria-label="Обновить библиотеку манги"><img src="/icons/refresh.svg" alt=""></button>
+        </div>
+        <div class="manga-tools">
+          <span id="manga-summary" class="section-note"></span>
+          <label class="mini-search"><img src="/icons/search.svg" alt=""><input id="manga-query" type="search" placeholder="Название манги" aria-label="Поиск манги"></label>
+        </div>
+        <div id="manga-results" class="manga-grid"></div>
+      </section>
+
       <section id="view-downloads" class="view">
         <div class="page-heading">
           <div><p class="eyebrow">Transmission</p><h1>Загрузки</h1><p class="lead">Управление очередью и файлами на SSD.</p></div>
@@ -182,6 +195,7 @@
   <nav class="mobile-nav" aria-label="Основная навигация">
     <button class="mobile-nav-item active" data-view="search"><img src="/icons/search.svg" alt=""><span>Поиск</span></button>
     <button class="mobile-nav-item" data-view="library"><img src="/icons/library.svg" alt=""><span>Видео</span></button>
+    <button class="mobile-nav-item" data-view="manga"><img src="/icons/library.svg" alt=""><span>Манга</span></button>
     <button class="mobile-nav-item" data-view="music"><img src="/icons/music.svg" alt=""><span>Музыка</span></button>
     <button class="mobile-nav-item" data-view="downloads"><img src="/icons/download.svg" alt=""><span>Загрузки</span></button>
     <button class="mobile-nav-item" data-view="history"><img src="/icons/history.svg" alt=""><span>История</span></button>
@@ -210,7 +224,31 @@
       <div id="episode-list" class="episode-list"></div>
     </div>
   </dialog>
+  <dialog id="manga-reader-dialog" class="manga-reader-dialog" aria-label="Читалка манги">
+    <div class="manga-reader-shell">
+      <header class="manga-reader-toolbar">
+        <button id="close-manga-reader" class="manga-reader-close" type="button" aria-label="Закрыть чтение">×</button>
+        <div class="manga-reader-heading"><strong id="manga-reader-title">Манга</strong><span id="manga-reader-page-label">Страница 1</span></div>
+        <div class="manga-reader-options">
+          <button id="manga-direction" type="button" aria-pressed="true" title="Изменить направление чтения">Справа налево</button>
+          <button id="manga-fit" type="button" aria-pressed="false" title="Изменить подгонку страницы">По высоте</button>
+          <button id="manga-theme" type="button" aria-pressed="true" title="Изменить фон читалки">Тёмный фон</button>
+        </div>
+      </header>
+      <main id="manga-reader-stage" class="manga-reader-stage" tabindex="0" aria-label="Страница манги">
+        <button id="manga-prev" class="manga-page-arrow manga-page-prev" type="button" aria-label="Предыдущая страница">‹</button>
+        <img id="manga-page-image" class="manga-page-image fit-height" alt="Страница манги" draggable="false">
+        <button id="manga-next" class="manga-page-arrow manga-page-next" type="button" aria-label="Следующая страница">›</button>
+      </main>
+      <footer class="manga-reader-footer">
+        <button id="manga-prev-bottom" class="manga-footer-button" type="button" aria-label="Предыдущая страница">‹</button>
+        <input id="manga-page-range" type="range" min="0" max="0" value="0" aria-label="Перейти к странице">
+        <span id="manga-page-count" class="manga-page-count">1 / 1</span>
+        <button id="manga-next-bottom" class="manga-footer-button" type="button" aria-label="Следующая страница">›</button>
+      </footer>
+    </div>
+  </dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="/app.js?v=20261006-6" defer></script>
+  <script src="/app.js?v=20261014-1" defer></script>
 </body>
 </html>

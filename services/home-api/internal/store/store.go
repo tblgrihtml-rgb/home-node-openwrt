@@ -65,6 +65,13 @@ type WatchProgress struct {
 	UpdatedAt       string  `json:"updated_at"`
 }
 
+type MangaProgress struct {
+	Path      string `json:"path"`
+	Page      int    `json:"page"`
+	PageCount int    `json:"page_count"`
+	UpdatedAt string `json:"updated_at"`
+}
+
 func Open(path string) (*Store, error) {
 	db, err := sql.Open("sqlite", path)
 	if err != nil {
@@ -131,6 +138,13 @@ func Open(path string) (*Store, error) {
 			updated_at TEXT NOT NULL
 		);
 		CREATE INDEX IF NOT EXISTS idx_watch_progress_updated_at ON watch_progress(updated_at DESC);
+		CREATE TABLE IF NOT EXISTS manga_progress (
+			path TEXT PRIMARY KEY,
+			page INTEGER NOT NULL DEFAULT 0,
+			page_count INTEGER NOT NULL DEFAULT 0,
+			updated_at TEXT NOT NULL
+		);
+		CREATE INDEX IF NOT EXISTS idx_manga_progress_updated_at ON manga_progress(updated_at DESC);
 	`); err != nil {
 		db.Close()
 		return nil, err
@@ -325,6 +339,35 @@ func (s *Store) RecentWatchProgress(ctx context.Context, limit int) ([]WatchProg
 			return nil, err
 		}
 		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (s *Store) SetMangaProgress(ctx context.Context, progress MangaProgress) error {
+	updatedAt := progress.UpdatedAt
+	if updatedAt == "" {
+		updatedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO manga_progress(path, page, page_count, updated_at) VALUES(?,?,?,?)
+		ON CONFLICT(path) DO UPDATE SET page=excluded.page, page_count=excluded.page_count, updated_at=excluded.updated_at`,
+		progress.Path, progress.Page, progress.PageCount, updatedAt)
+	return err
+}
+
+func (s *Store) MangaProgresses(ctx context.Context) (map[string]MangaProgress, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT path, page, page_count, updated_at FROM manga_progress`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make(map[string]MangaProgress)
+	for rows.Next() {
+		var item MangaProgress
+		if err := rows.Scan(&item.Path, &item.Page, &item.PageCount, &item.UpdatedAt); err != nil {
+			return nil, err
+		}
+		items[item.Path] = item
 	}
 	return items, rows.Err()
 }

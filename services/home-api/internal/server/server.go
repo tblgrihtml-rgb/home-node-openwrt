@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -36,6 +37,8 @@ type Server struct {
 	telegram     *telegram.Bot
 	logger       *slog.Logger
 	handler      http.Handler
+	mangaMu      sync.Mutex
+	mangaCache   map[string]mangaIndex
 }
 
 type MediaFile struct {
@@ -48,7 +51,7 @@ type MediaFile struct {
 }
 
 func New(cfg config.Config, anime *aniliberty.Client, tracker *rutracker.Client, transmissionClient *transmission.Client, database *store.Store, telegramBot *telegram.Bot, logger *slog.Logger) (*Server, error) {
-	s := &Server{cfg: cfg, anime: anime, tracker: tracker, transmission: transmissionClient, store: database, telegram: telegramBot, logger: logger}
+	s := &Server{cfg: cfg, anime: anime, tracker: tracker, transmission: transmissionClient, store: database, telegram: telegramBot, logger: logger, mangaCache: make(map[string]mangaIndex)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /login", s.loginPage)
 	mux.HandleFunc("GET /login.js", s.loginScript)
@@ -63,6 +66,9 @@ func New(cfg config.Config, anime *aniliberty.Client, tracker *rutracker.Client,
 	mux.Handle("GET /api/media/stream", s.auth(http.HandlerFunc(s.mediaStream)))
 	mux.Handle("GET /api/media/compatible", s.auth(http.HandlerFunc(s.mediaCompatible)))
 	mux.Handle("GET /api/library", s.auth(http.HandlerFunc(s.library)))
+	mux.Handle("GET /api/manga", s.auth(http.HandlerFunc(s.mangaList)))
+	mux.Handle("GET /api/manga/page", s.auth(http.HandlerFunc(s.mangaPage)))
+	mux.Handle("PUT /api/manga/progress", s.auth(s.mutation(http.HandlerFunc(s.mangaProgressUpdate))))
 	mux.Handle("GET /api/watch-progress", s.auth(http.HandlerFunc(s.watchProgressList)))
 	mux.Handle("PUT /api/watch-progress", s.auth(s.mutation(http.HandlerFunc(s.watchProgressUpdate))))
 	mux.Handle("GET /api/history", s.auth(http.HandlerFunc(s.history)))

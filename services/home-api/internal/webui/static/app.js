@@ -1,8 +1,15 @@
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+const mangaPreferences = (() => {
+  try { return JSON.parse(localStorage.getItem('homenode-manga-preferences') || '{}'); }
+  catch (_) { return {}; }
+})();
 
 const state = {
   source: 'all', library: [], libraryCategory: 'all', downloads: [], downloadFilter: 'all', selectedDownloadID: null,
+  mangaBooks: [], mangaBook: null, mangaPage: 0,
+  mangaRTL: mangaPreferences.rtl !== false, mangaFit: mangaPreferences.fit === 'width' ? 'width' : 'height',
+  mangaLight: mangaPreferences.light === true, mangaSaveTimer: null,
   watchProgress: [], watchProgressByPath: new Map(),
   playingItem: null, playingFile: null, playingButton: null, playingPlayer: null, playingOffset: 0, lastProgressWrite: 0,
   autoplayTimer: null, autoplayRemaining: 0,
@@ -106,6 +113,7 @@ function setView(name) {
   $$('[data-view]').forEach((button) => button.classList.toggle('active', button.dataset.view === name));
   window.history.replaceState(null, '', `#${name}`);
   if (name === 'library') loadLibrary();
+  if (name === 'manga') loadManga();
   if (name === 'music') loadMusic();
   if (name === 'downloads') loadDownloads();
   if (name === 'history') loadHistory();
@@ -687,6 +695,202 @@ async function loadMusic(silent = false) {
   catch (error) { container.replaceChildren(emptyState('Не удалось прочитать музыку', error.message, true)); }
 }
 
+function mangaPageURL(book, page) {
+  return `/api/manga/page?path=${encodeURIComponent(book.path)}&page=${page}`;
+}
+
+function renderManga() {
+  const container = $('#manga-results');
+  const query = $('#manga-query').value.trim().toLocaleLowerCase();
+  const books = state.mangaBooks.filter((book) => !query || book.title.toLocaleLowerCase().includes(query));
+  const pages = state.mangaBooks.reduce((sum, book) => sum + book.page_count, 0);
+  $('#manga-summary').textContent = `${state.mangaBooks.length} книг · ${pages} страниц`;
+  container.replaceChildren();
+  if (!books.length) {
+    const hasQuery = Boolean(query);
+    return container.append(emptyState(hasQuery ? 'Манга не найдена' : 'Манга пока не найдена', hasQuery ? 'Попробуйте другое название.' : 'Сейчас поддерживаются EPUB-книги с изображениями.'));
+  }
+  books.forEach((book) => {
+    const card = element('article', 'manga-card');
+    const cover = element('div', 'manga-cover');
+    const image = element('img');
+    image.src = book.cover_url;
+    image.alt = `Обложка «${book.title}»`;
+    image.loading = 'lazy';
+    image.onerror = () => {
+      cover.replaceChildren(element('span', 'manga-cover-fallback', (book.title || 'М').slice(0, 1).toLocaleUpperCase()));
+    };
+    cover.append(image);
+    card.append(cover);
+    const body = element('div', 'manga-card-body');
+    body.append(element('h3', '', book.title));
+    body.append(element('div', 'meta', `${book.page_count} страниц · ${humanBytes(book.size)}`));
+    const progress = Math.max(0, Math.min(book.page_count, (book.progress_page || 0)));
+    if (book.updated_at) {
+      body.append(element('div', 'manga-progress-copy', `Продолжить · стр. ${progress + 1} из ${book.page_count}`));
+      const track = element('div', 'manga-progress-track');
+      const fill = element('span');
+      fill.style.width = `${Math.min(100, ((progress + 1) / Math.max(1, book.page_count)) * 100)}%`;
+      track.append(fill);
+      body.append(track);
+    }
+    const open = element('button', 'primary-button manga-card-action', book.updated_at ? 'Продолжить чтение' : 'Читать');
+    open.addEventListener('click', () => openMangaReader(book));
+    body.append(open);
+    card.append(body);
+    container.append(card);
+  });
+}
+
+async function loadManga(silent = false) {
+  const container = $('#manga-results');
+  if (!silent) container.replaceChildren(emptyState('Сканируем книги…'));
+  try {
+    state.mangaBooks = await api('/api/manga');
+    renderManga();
+  } catch (error) {
+    container.replaceChildren(emptyState('Не удалось прочитать библиотеку манги', error.message, true));
+  }
+}
+
+function updateMangaReader() {
+  const book = state.mangaBook;
+  if (!book) return;
+  const page = Math.max(0, Math.min(book.page_count - 1, state.mangaPage));
+  state.mangaPage = page;
+  const image = $('#manga-page-image');
+  image.src = mangaPageURL(book, page);
+  image.alt = `«${book.title}», страница ${page + 1}`;
+  image.classList.toggle('fit-height', state.mangaFit === 'height');
+  image.classList.toggle('fit-width', state.mangaFit === 'width');
+  $('#manga-reader-title').textContent = book.title;
+  $('#manga-reader-page-label').textContent = `Страница ${page + 1} из ${book.page_count}`;
+  $('#manga-page-count').textContent = `${page + 1} / ${book.page_count}`;
+  const slider = $('#manga-page-range');
+  slider.max = String(Math.max(0, book.page_count - 1));
+  slider.value = String(page);
+  $('#manga-direction').textContent = state.mangaRTL ? 'Справа налево' : 'Слева направо';
+  $('#manga-direction').setAttribute('aria-pressed', String(state.mangaRTL));
+  $('#manga-fit').textContent = state.mangaFit === 'height' ? 'По высоте' : 'По ширине';
+  $('#manga-fit').setAttribute('aria-pressed', String(state.mangaFit === 'width'));
+  $('#manga-theme').textContent = state.mangaLight ? 'Светлый фон' : 'Тёмный фон';
+  $('#manga-theme').setAttribute('aria-pressed', String(state.mangaLight));
+  $('#manga-reader-dialog').classList.toggle('light-reader', state.mangaLight);
+  $('#manga-prev').textContent = state.mangaRTL ? '›' : '‹';
+  $('#manga-prev-bottom').textContent = state.mangaRTL ? '›' : '‹';
+  $('#manga-next').textContent = state.mangaRTL ? '‹' : '›';
+  $('#manga-next-bottom').textContent = state.mangaRTL ? '‹' : '›';
+  const atStart = page <= 0;
+  const atEnd = page >= book.page_count - 1;
+  $('#manga-prev').disabled = atStart;
+  $('#manga-prev-bottom').disabled = atStart;
+  $('#manga-next').disabled = atEnd;
+  $('#manga-next-bottom').disabled = atEnd;
+  $('#manga-reader-stage').scrollTop = 0;
+}
+
+function saveMangaProgress() {
+  const book = state.mangaBook;
+  if (!book) return Promise.resolve();
+  clearTimeout(state.mangaSaveTimer);
+  const payload = {path: book.path, page: state.mangaPage, page_count: book.page_count};
+  const updateLocal = () => {
+    book.progress_page = state.mangaPage;
+    book.updated_at = new Date().toISOString();
+  };
+  updateLocal();
+  return api('/api/manga/progress', {
+    method: 'PUT', headers: {'Content-Type': 'application/json', 'X-HomeNode-Request': '1'}, body: JSON.stringify(payload),
+  }).then(() => {}).catch((error) => toast(`Не удалось сохранить страницу: ${error.message}`));
+}
+
+function setMangaPage(page, persist = true) {
+  const book = state.mangaBook;
+  if (!book) return;
+  const bounded = Math.max(0, Math.min(book.page_count - 1, Number(page) || 0));
+  if (bounded === state.mangaPage) return;
+  state.mangaPage = bounded;
+  updateMangaReader();
+  if (persist) {
+    clearTimeout(state.mangaSaveTimer);
+    state.mangaSaveTimer = window.setTimeout(() => { saveMangaProgress(); renderManga(); }, 650);
+  }
+  const nextPage = bounded + (state.mangaRTL ? -1 : 1);
+  if (nextPage >= 0 && nextPage < book.page_count) {
+    const prefetch = new Image();
+    prefetch.src = mangaPageURL(book, nextPage);
+  }
+}
+
+function saveMangaPreferences() {
+  try {
+    localStorage.setItem('homenode-manga-preferences', JSON.stringify({rtl: state.mangaRTL, fit: state.mangaFit, light: state.mangaLight}));
+  } catch (_) { /* Private browsing may block local storage. */ }
+}
+
+function openMangaReader(book) {
+  state.mangaBook = book;
+  state.mangaPage = Math.max(0, Math.min(book.page_count - 1, Number(book.progress_page) || 0));
+  updateMangaReader();
+  const dialog = $('#manga-reader-dialog');
+  if (!dialog.open) dialog.showModal();
+  $('#manga-reader-stage').focus({preventScroll: true});
+}
+
+function closeMangaReader() {
+  if (!$('#manga-reader-dialog').open) return;
+  clearTimeout(state.mangaSaveTimer);
+  saveMangaProgress();
+  $('#manga-reader-dialog').close();
+  state.mangaBook = null;
+  renderManga();
+}
+
+function stepMangaPage(delta) {
+  if (!state.mangaBook) return;
+  setMangaPage(state.mangaPage + delta);
+}
+
+$('#manga-query').addEventListener('input', renderManga);
+$('#refresh-manga').addEventListener('click', () => loadManga());
+$('#close-manga-reader').addEventListener('click', closeMangaReader);
+$('#manga-prev').addEventListener('click', () => stepMangaPage(-1));
+$('#manga-prev-bottom').addEventListener('click', () => stepMangaPage(-1));
+$('#manga-next').addEventListener('click', () => stepMangaPage(1));
+$('#manga-next-bottom').addEventListener('click', () => stepMangaPage(1));
+$('#manga-page-range').addEventListener('input', (event) => setMangaPage(event.currentTarget.value));
+$('#manga-direction').addEventListener('click', () => { state.mangaRTL = !state.mangaRTL; saveMangaPreferences(); updateMangaReader(); });
+$('#manga-fit').addEventListener('click', () => { state.mangaFit = state.mangaFit === 'height' ? 'width' : 'height'; saveMangaPreferences(); updateMangaReader(); });
+$('#manga-theme').addEventListener('click', () => { state.mangaLight = !state.mangaLight; saveMangaPreferences(); updateMangaReader(); });
+$('#manga-reader-dialog').addEventListener('cancel', (event) => { event.preventDefault(); closeMangaReader(); });
+$('#manga-reader-dialog').addEventListener('click', (event) => { if (event.target === event.currentTarget) closeMangaReader(); });
+let suppressMangaClickUntil = 0;
+$('#manga-reader-stage').addEventListener('click', (event) => {
+  if (Date.now() < suppressMangaClickUntil) return;
+  if (event.target !== $('#manga-page-image')) return;
+  const rect = event.currentTarget.getBoundingClientRect();
+  const forward = (event.clientX - rect.left) > rect.width / 2;
+  stepMangaPage(forward === state.mangaRTL ? -1 : 1);
+});
+let mangaTouchStartX = 0;
+$('#manga-reader-stage').addEventListener('touchstart', (event) => { mangaTouchStartX = event.changedTouches[0]?.clientX || 0; }, {passive: true});
+$('#manga-reader-stage').addEventListener('touchend', (event) => {
+  const endX = event.changedTouches[0]?.clientX || mangaTouchStartX;
+  const delta = endX - mangaTouchStartX;
+  if (Math.abs(delta) < 48) return;
+  suppressMangaClickUntil = Date.now() + 500;
+  const forward = state.mangaRTL ? delta > 0 : delta < 0;
+  stepMangaPage(forward ? 1 : -1);
+}, {passive: true});
+document.addEventListener('keydown', (event) => {
+  if (!$('#manga-reader-dialog').open || event.target.matches('input,button,select,textarea')) return;
+  if (event.key === 'Escape') { closeMangaReader(); return; }
+  if (event.key === 'ArrowLeft') stepMangaPage(state.mangaRTL ? 1 : -1);
+  if (event.key === 'ArrowRight') stepMangaPage(state.mangaRTL ? -1 : 1);
+  if (event.key === 'PageDown' || event.key === ' ') { event.preventDefault(); stepMangaPage(1); }
+  if (event.key === 'PageUp') { event.preventDefault(); stepMangaPage(-1); }
+});
+
 async function loadRecentLibrary() {
   const container = $('#recent-library');
   try {
@@ -991,13 +1195,13 @@ async function loadStatus() {
   } catch (error) { $('span:last-child', $('#disk-status')).textContent = error.message; }
 }
 
-const initialView = ['search', 'library', 'music', 'downloads', 'history', 'devices', 'telegram'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'search';
+const initialView = ['search', 'library', 'manga', 'music', 'downloads', 'history', 'devices', 'telegram'].includes(location.hash.slice(1)) ? location.hash.slice(1) : 'search';
 setView(initialView);
 loadStatus();
 loadRecentLibrary();
 loadDownloads(true);
 if (isAppleWebKit && 'serviceWorker' in navigator && location.protocol === 'https:') {
-  navigator.serviceWorker.register('/sw.js?v=20260930-5').catch(() => {});
+  navigator.serviceWorker.register('/sw.js?v=20261014-1').catch(() => {});
 }
 if (isAppleWebKit && !navigator.standalone && !localStorage.getItem('homenode-ios-install-dismissed')) {
   $('#ios-install-hint').hidden = false;
