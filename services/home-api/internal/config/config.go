@@ -18,6 +18,7 @@ type Config struct {
 	MediaRoot                 string
 	AnimeDownloadDir          string
 	MovieDownloadDir          string
+	MangaDir                  string
 	MusicDownloadDir          string
 	APIUsername               string
 	APIPassword               string
@@ -55,6 +56,7 @@ func Load() (Config, error) {
 		MediaRoot:                 env("HOMENODE_MEDIA_ROOT", "/mnt/ssd/media"),
 		AnimeDownloadDir:          env("HOMENODE_ANIME_DIR", "/mnt/ssd/media/anime"),
 		MovieDownloadDir:          env("HOMENODE_MOVIES_DIR", "/mnt/ssd/media/movies"),
+		MangaDir:                  env("HOMENODE_MANGA_DIR", "/mnt/ssd/media/manga"),
 		MusicDownloadDir:          env("HOMENODE_MUSIC_DIR", "/mnt/ssd/media/music"),
 		APIUsername:               strings.TrimSpace(os.Getenv("HOMENODE_USER")),
 		APIPassword:               os.Getenv("HOMENODE_PASSWORD"),

@@ -693,7 +693,131 @@ async function loadMusic(silent = false) {
   if (!silent) container.replaceChildren(emptyState('Читаем музыку…'));
   try { await fetchLibrary(); renderMusic(); }
   catch (error) { container.replaceChildren(emptyState('Не удалось прочитать музыку', error.message, true)); }
+  await Promise.all([loadMusicProvider(), loadMusicQueue()]);
 }
+
+async function loadMusicProvider() {
+  const label = $('#music-provider-status');
+  try {
+    const status = await api('/api/music/status');
+    const cooldown = new Date(status.cooldown_until || 0);
+    label.textContent = !status.verified ? 'Для загрузки подтвердите доступ к источнику'
+      : cooldown > new Date() ? `Источник на паузе до ${cooldown.toLocaleString()}`
+        : 'Источник подтверждён · можно загружать FLAC';
+    $('#music-verify').hidden = Boolean(status.verified);
+  } catch (error) {
+    label.textContent = `Источник недоступен: ${error.message}`;
+  }
+}
+
+async function loadMusicQueue() {
+  const container = $('#music-queue');
+  try {
+    const data = await api('/api/music/jobs');
+    container.replaceChildren();
+    if (!data.jobs?.length) return container.append(emptyState('Очередь пуста', 'Найдите трек и нажмите «В очередь».'));
+    const labels = {queued: 'В очереди', running: 'Загружается', retry: 'Ждёт повторной попытки', verification: 'Нужно подтверждение', done: 'Готово', failed: 'Ошибка'};
+    data.jobs.forEach((job) => {
+      const row = element('div', 'music-queue-row');
+      const body = element('div', 'music-queue-body');
+      body.append(element('strong', '', job.title), element('span', '', `${job.artist} · ${job.album}`));
+      const meta = element('div', 'music-queue-meta');
+      meta.append(element('span', `music-job-status status-${job.status}`, labels[job.status] || job.status));
+      if (job.status === 'retry' && job.next_attempt_at) meta.append(element('small', '', `Повтор: ${new Date(job.next_attempt_at).toLocaleString()}`));
+      if (job.error) meta.append(element('small', '', job.error));
+      if (job.status === 'done' && job.relative_path) meta.append(element('small', '', job.relative_path));
+      row.append(body, meta);
+      const actions = element('div', 'music-queue-actions');
+      if (['failed', 'verification', 'retry'].includes(job.status)) {
+        const retry = element('button', 'text-button', 'Повторить');
+        retry.type = 'button';
+        retry.addEventListener('click', async () => {
+          try { await api(`/api/music/jobs/${job.id}/retry`, {method: 'POST', headers: {'X-HomeNode-Request': '1'}}); await loadMusicQueue(); }
+          catch (error) { toast(error.message); }
+        });
+        actions.append(retry);
+      }
+      if (job.status !== 'running') {
+        const remove = element('button', 'text-button', 'Убрать запись');
+        remove.type = 'button';
+        remove.addEventListener('click', async () => {
+          if (!window.confirm('Убрать запись из очереди? Уже скачанный файл останется на SSD.')) return;
+          try { await api(`/api/music/jobs/${job.id}`, {method: 'DELETE', headers: {'X-HomeNode-Request': '1'}}); await loadMusicQueue(); }
+          catch (error) { toast(error.message); }
+        });
+        actions.append(remove);
+      }
+      row.append(actions);
+      container.append(row);
+    });
+  } catch (error) {
+    container.replaceChildren(emptyState('Очередь недоступна', error.message, true));
+  }
+}
+
+$('#music-online-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const query = $('#music-online-query').value.trim();
+  const container = $('#music-online-results');
+  container.replaceChildren(emptyState('Ищем треки…'));
+  try {
+    const data = await api(`/api/music/search?q=${encodeURIComponent(query)}`);
+    container.replaceChildren();
+    if (!data.tracks?.length) return container.append(emptyState('Треки не найдены', 'Попробуйте другое название.'));
+    data.tracks.forEach((track) => {
+      const row = element('div', 'music-search-row');
+      const body = element('div', 'music-search-body');
+      body.append(element('strong', '', track.title), element('span', '', `${track.artist} · ${track.album}`));
+      const add = element('button', 'primary-button', 'В очередь');
+      add.type = 'button';
+      add.addEventListener('click', async () => {
+        add.disabled = true;
+        try {
+          await api('/api/music/jobs', {method: 'POST', headers: {'Content-Type': 'application/json', 'X-HomeNode-Request': '1'}, body: JSON.stringify({track_id: track.id})});
+          toast('Трек добавлен в очередь');
+          await loadMusicQueue();
+        } catch (error) { toast(error.message); }
+        finally { add.disabled = false; }
+      });
+      row.append(body, add);
+      container.append(row);
+    });
+  } catch (error) {
+    container.replaceChildren(emptyState('Поиск недоступен', error.message, true));
+  }
+});
+
+$('#music-verify').addEventListener('click', async () => {
+  try {
+    const result = await api('/api/music/verify/start', {method: 'POST', headers: {'X-HomeNode-Request': '1'}});
+    $('#music-verify-link').href = result.url;
+    $('#music-verify-steps').hidden = false;
+    $('#music-verify-callback').value = '';
+    toast('Откройте ссылку и завершите проверку по инструкции');
+  } catch (error) { toast(error.message); }
+});
+$('#music-verify-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const button = event.currentTarget.querySelector('button');
+  button.disabled = true;
+  try {
+    await api('/api/music/verify/complete', {
+      method: 'POST', headers: {'Content-Type': 'application/json', 'X-HomeNode-Request': '1'},
+      body: JSON.stringify({callback_url: $('#music-verify-callback').value.trim()}),
+    });
+    $('#music-verify-callback').value = '';
+    $('#music-verify-steps').hidden = true;
+    toast('Доступ к источнику подтверждён');
+    loadMusicProvider();
+    loadMusicQueue();
+  } catch (error) { toast(error.message); }
+  finally { button.disabled = false; }
+});
+
+$('#music-queue-refresh').addEventListener('click', () => { loadMusicProvider(); loadMusicQueue(); });
+window.setInterval(() => {
+  if (location.hash === '#music') { loadMusicProvider(); loadMusicQueue(); }
+}, 20000);
 
 function mangaPageURL(book, page) {
   return `/api/manga/page?path=${encodeURIComponent(book.path)}&page=${page}`;
@@ -1201,7 +1325,7 @@ loadStatus();
 loadRecentLibrary();
 loadDownloads(true);
 if (isAppleWebKit && 'serviceWorker' in navigator && location.protocol === 'https:') {
-  navigator.serviceWorker.register('/sw.js?v=20261014-1').catch(() => {});
+  navigator.serviceWorker.register('/sw.js?v=20261018-2').catch(() => {});
 }
 if (isAppleWebKit && !navigator.standalone && !localStorage.getItem('homenode-ios-install-dismissed')) {
   $('#ios-install-hint').hidden = false;

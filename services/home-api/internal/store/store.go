@@ -39,7 +39,15 @@ type TelegramOwner struct {
 
 type TelegramDownloadState struct {
 	PercentDone float64
+	Error       int
 	ErrorString string
+}
+
+type TelegramAnimeEpisodeState struct {
+	ReleaseID int64
+	EpisodeID string
+	Ordinal   float64
+	Name      string
 }
 
 type TelegramMusicTrack struct {
@@ -115,6 +123,13 @@ func Open(path string) (*Store, error) {
 			error_string TEXT NOT NULL DEFAULT '',
 			updated_at TEXT NOT NULL
 		);
+		CREATE TABLE IF NOT EXISTS telegram_anime_episode_state (
+			release_id INTEGER PRIMARY KEY,
+			episode_id TEXT NOT NULL DEFAULT '',
+			ordinal REAL NOT NULL DEFAULT 0,
+			name TEXT NOT NULL DEFAULT '',
+			updated_at TEXT NOT NULL
+		);
 		CREATE TABLE IF NOT EXISTS telegram_music_tracks (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			file_unique_id TEXT NOT NULL UNIQUE,
@@ -149,7 +164,61 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	// Additive migration for databases created before error types were stored.
+	rows, err := db.Query(`PRAGMA table_info(telegram_download_state)`)
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	hasErrorCode := false
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, columnType string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notnull, &defaultValue, &pk); err != nil {
+			rows.Close()
+			db.Close()
+			return nil, err
+		}
+		if name == "error_code" {
+			hasErrorCode = true
+		}
+	}
+	if err := rows.Close(); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if !hasErrorCode {
+		if _, err := db.Exec(`ALTER TABLE telegram_download_state ADD COLUMN error_code INTEGER NOT NULL DEFAULT 0`); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
+	if err := initMusicJobs(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return &Store{db: db}, nil
+}
+
+func (s *Store) TelegramAnimeEpisode(ctx context.Context, releaseID int64) (TelegramAnimeEpisodeState, bool, error) {
+	var state TelegramAnimeEpisodeState
+	err := s.db.QueryRowContext(ctx, `SELECT release_id, episode_id, ordinal, name FROM telegram_anime_episode_state WHERE release_id = ?`, releaseID).
+		Scan(&state.ReleaseID, &state.EpisodeID, &state.Ordinal, &state.Name)
+	if err == sql.ErrNoRows {
+		return TelegramAnimeEpisodeState{}, false, nil
+	}
+	return state, err == nil, err
+}
+
+func (s *Store) SetTelegramAnimeEpisode(ctx context.Context, state TelegramAnimeEpisodeState) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO telegram_anime_episode_state(release_id, episode_id, ordinal, name, updated_at)
+		VALUES(?,?,?,?,?)
+		ON CONFLICT(release_id) DO UPDATE SET
+			episode_id=excluded.episode_id, ordinal=excluded.ordinal, name=excluded.name, updated_at=excluded.updated_at`,
+		state.ReleaseID, state.EpisodeID, state.Ordinal, state.Name, time.Now().UTC().Format(time.RFC3339))
+	return err
 }
 
 func (s *Store) TelegramOwner(ctx context.Context) (TelegramOwner, bool, error) {
@@ -200,7 +269,7 @@ func (s *Store) SetTelegramOffset(ctx context.Context, offset int64) error {
 }
 
 func (s *Store) TelegramDownloadStates(ctx context.Context) (map[int64]TelegramDownloadState, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT torrent_id, percent_done, error_string FROM telegram_download_state`)
+	rows, err := s.db.QueryContext(ctx, `SELECT torrent_id, percent_done, error_code, error_string FROM telegram_download_state`)
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +278,7 @@ func (s *Store) TelegramDownloadStates(ctx context.Context) (map[int64]TelegramD
 	for rows.Next() {
 		var id int64
 		var state TelegramDownloadState
-		if err := rows.Scan(&id, &state.PercentDone, &state.ErrorString); err != nil {
+		if err := rows.Scan(&id, &state.PercentDone, &state.Error, &state.ErrorString); err != nil {
 			return nil, err
 		}
 		states[id] = state
@@ -219,13 +288,14 @@ func (s *Store) TelegramDownloadStates(ctx context.Context) (map[int64]TelegramD
 
 func (s *Store) SetTelegramDownloadState(ctx context.Context, torrentID int64, state TelegramDownloadState) error {
 	_, err := s.db.ExecContext(ctx, `
-		INSERT INTO telegram_download_state(torrent_id, percent_done, error_string, updated_at)
-		VALUES(?, ?, ?, ?)
+		INSERT INTO telegram_download_state(torrent_id, percent_done, error_code, error_string, updated_at)
+		VALUES(?, ?, ?, ?, ?)
 		ON CONFLICT(torrent_id) DO UPDATE SET
 			percent_done=excluded.percent_done,
+			error_code=excluded.error_code,
 			error_string=excluded.error_string,
 			updated_at=excluded.updated_at`,
-		torrentID, state.PercentDone, state.ErrorString, time.Now().UTC().Format(time.RFC3339))
+		torrentID, state.PercentDone, state.Error, state.ErrorString, time.Now().UTC().Format(time.RFC3339))
 	return err
 }
 

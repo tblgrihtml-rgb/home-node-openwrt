@@ -20,6 +20,7 @@ type LibraryTitle struct {
 	Size       int64         `json:"size"`
 	ModifiedAt string        `json:"modified_at"`
 	PosterURL  string        `json:"poster_url"`
+	ReleaseID  int64         `json:"release_id,omitempty"`
 	Artist     string        `json:"artist,omitempty"`
 	SMBPath    string        `json:"smb_path"`
 	Files      []LibraryFile `json:"files"`
@@ -116,6 +117,7 @@ func (s *Server) enrichLibraryTitle(r *http.Request, item *LibraryTitle) {
 	cached, ok, err := s.store.MediaTitle(r.Context(), item.Folder)
 	if err == nil && ok {
 		item.PosterURL = cached.PosterURL
+		item.ReleaseID = cached.ReleaseID
 		if strings.Contains(cached.PosterURL, "quality=full") {
 			return
 		}
@@ -148,6 +150,7 @@ func (s *Server) enrichLibraryTitle(r *http.Request, item *LibraryTitle) {
 		poster += "?quality=full"
 	}
 	item.PosterURL = poster
+	item.ReleaseID = release.ID
 	_ = s.store.UpsertMediaTitle(r.Context(), store.MediaTitle{
 		Folder: item.Folder, Title: item.Title, PosterURL: poster,
 		Source: "aniliberty", ReleaseID: release.ID,

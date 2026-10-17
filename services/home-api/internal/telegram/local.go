@@ -29,6 +29,7 @@ type libraryTitle struct {
 	Category  string `json:"category"`
 	FileCount int    `json:"file_count"`
 	Size      int64  `json:"size"`
+	ReleaseID int64  `json:"release_id"`
 }
 
 func newLocalClient(baseURL, user, pass string) *localClient {
@@ -90,6 +91,12 @@ func (c *localClient) animeTorrents(ctx context.Context, releaseID int64) ([]ani
 	var items []aniliberty.Torrent
 	err := c.request(ctx, http.MethodGet, "/api/anime/"+strconv.FormatInt(releaseID, 10)+"/torrents", nil, &items)
 	return items, err
+}
+
+func (c *localClient) animeRelease(ctx context.Context, releaseID int64) (aniliberty.ReleaseDetails, error) {
+	var item aniliberty.ReleaseDetails
+	err := c.request(ctx, http.MethodGet, "/api/anime/"+strconv.FormatInt(releaseID, 10), nil, &item)
+	return item, err
 }
 
 func (c *localClient) downloadAnime(ctx context.Context, releaseID, torrentID int64, title string) error {

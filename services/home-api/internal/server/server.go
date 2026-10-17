@@ -19,6 +19,7 @@ import (
 
 	"homenode/services/home-api/internal/aniliberty"
 	"homenode/services/home-api/internal/config"
+	"homenode/services/home-api/internal/music"
 	"homenode/services/home-api/internal/rutracker"
 	"homenode/services/home-api/internal/store"
 	"homenode/services/home-api/internal/telegram"
@@ -35,6 +36,7 @@ type Server struct {
 	transmission *transmission.Client
 	store        *store.Store
 	telegram     *telegram.Bot
+	music        *music.Client
 	logger       *slog.Logger
 	handler      http.Handler
 	mangaMu      sync.Mutex
@@ -52,6 +54,11 @@ type MediaFile struct {
 
 func New(cfg config.Config, anime *aniliberty.Client, tracker *rutracker.Client, transmissionClient *transmission.Client, database *store.Store, telegramBot *telegram.Bot, logger *slog.Logger) (*Server, error) {
 	s := &Server{cfg: cfg, anime: anime, tracker: tracker, transmission: transmissionClient, store: database, telegram: telegramBot, logger: logger, mangaCache: make(map[string]mangaIndex)}
+	var err error
+	s.music, err = music.New(filepath.Join(filepath.Dir(cfg.DatabasePath), "music-community-session.json"))
+	if err != nil {
+		return nil, fmt.Errorf("music provider setup: %w", err)
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /login", s.loginPage)
 	mux.HandleFunc("GET /login.js", s.loginScript)
@@ -76,6 +83,14 @@ func New(cfg config.Config, anime *aniliberty.Client, tracker *rutracker.Client,
 	mux.Handle("POST /api/devices/{mac}/vpn", s.auth(s.mutation(http.HandlerFunc(s.deviceVPN))))
 	mux.Handle("DELETE /api/devices/{mac}/vpn", s.auth(s.mutation(http.HandlerFunc(s.deviceVPN))))
 	mux.Handle("GET /api/downloads", s.auth(http.HandlerFunc(s.downloads)))
+	mux.Handle("GET /api/music/search", s.auth(http.HandlerFunc(s.musicSearch)))
+	mux.Handle("GET /api/music/status", s.auth(http.HandlerFunc(s.musicStatus)))
+	mux.Handle("GET /api/music/jobs", s.auth(http.HandlerFunc(s.musicJobs)))
+	mux.Handle("POST /api/music/jobs", s.auth(s.mutation(http.HandlerFunc(s.musicJobAdd))))
+	mux.Handle("POST /api/music/jobs/{id}/retry", s.auth(s.mutation(http.HandlerFunc(s.musicJobRetry))))
+	mux.Handle("DELETE /api/music/jobs/{id}", s.auth(s.mutation(http.HandlerFunc(s.musicJobRemove))))
+	mux.Handle("POST /api/music/verify/start", s.auth(s.mutation(http.HandlerFunc(s.musicVerifyStart))))
+	mux.Handle("POST /api/music/verify/complete", s.auth(s.mutation(http.HandlerFunc(s.musicVerifyComplete))))
 	mux.Handle("POST /api/downloads/{torrentID}/start", s.auth(s.mutation(http.HandlerFunc(s.downloadStart))))
 	mux.Handle("POST /api/downloads/{torrentID}/stop", s.auth(s.mutation(http.HandlerFunc(s.downloadStop))))
 	mux.Handle("DELETE /api/downloads/{torrentID}/data", s.auth(s.mutation(http.HandlerFunc(s.downloadDeleteData))))
@@ -83,6 +98,7 @@ func New(cfg config.Config, anime *aniliberty.Client, tracker *rutracker.Client,
 	mux.Handle("GET /api/anime/search", s.auth(http.HandlerFunc(s.animeSearch)))
 	mux.Handle("GET /api/anime/catalog", s.auth(http.HandlerFunc(s.animeCatalog)))
 	mux.Handle("GET /api/anime/{releaseID}/torrents", s.auth(http.HandlerFunc(s.animeTorrents)))
+	mux.Handle("GET /api/anime/{releaseID}", s.auth(http.HandlerFunc(s.animeRelease)))
 	mux.Handle("POST /api/anime/download", s.auth(s.mutation(http.HandlerFunc(s.animeDownload))))
 	mux.Handle("GET /api/tracker/search", s.auth(http.HandlerFunc(s.trackerSearch)))
 	mux.Handle("POST /api/tracker/download", s.auth(s.mutation(http.HandlerFunc(s.trackerDownload))))
@@ -316,6 +332,20 @@ func (s *Server) animeTorrents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, items)
+}
+
+func (s *Server) animeRelease(w http.ResponseWriter, r *http.Request) {
+	releaseID, err := strconv.ParseInt(r.PathValue("releaseID"), 10, 64)
+	if err != nil || releaseID <= 0 {
+		writeError(w, http.StatusBadRequest, "Некорректный ID релиза")
+		return
+	}
+	details, err := s.anime.ReleaseDetails(r.Context(), releaseID)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "Не удалось получить данные релиза AniLiberty")
+		return
+	}
+	writeJSON(w, http.StatusOK, details)
 }
 
 func (s *Server) animeDownload(w http.ResponseWriter, r *http.Request) {

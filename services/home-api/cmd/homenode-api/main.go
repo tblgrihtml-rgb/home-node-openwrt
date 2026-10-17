@@ -57,6 +57,7 @@ func main() {
 	defer stop()
 	go maintenance.Run(ctx, database, cfg.BackupDir, logger)
 	go telegramBot.Run(ctx)
+	go app.RunMusicQueue(ctx)
 	logger.Info("HomeNode API started", "listen", cfg.ListenAddress)
 	if err := app.ListenAndServe(ctx); err != nil {
 		logger.Error("server stopped", "error", err)

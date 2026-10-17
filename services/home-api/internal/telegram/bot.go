@@ -9,12 +9,14 @@ import (
 	"fmt"
 	"html"
 	"log/slog"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
 
+	"homenode/services/home-api/internal/aniliberty"
 	"homenode/services/home-api/internal/store"
 	"homenode/services/home-api/internal/transmission"
 )
@@ -164,6 +166,7 @@ func (b *Bot) Run(ctx context.Context) {
 	}}, nil)
 	b.logger.Info("Telegram bot started", "username", me.Username)
 	go b.watchDownloads(ctx)
+	go b.watchAnimeEpisodes(ctx)
 
 	offset, _ := b.store.TelegramOffset(ctx)
 	backoff := time.Second
@@ -202,6 +205,160 @@ func (b *Bot) Run(ctx context.Context) {
 	}
 }
 
+func (b *Bot) watchAnimeEpisodes(ctx context.Context) {
+	check := func() {
+		items, err := b.local.library(ctx)
+		if err != nil {
+			b.logger.Warn("load library for anime episode updates", "error", err)
+			return
+		}
+		owner, paired, err := b.store.TelegramOwner(ctx)
+		if err != nil {
+			b.logger.Warn("load Telegram owner for anime episode updates", "error", err)
+			return
+		}
+		for _, item := range items {
+			if item.Category != "anime" || item.ReleaseID <= 0 {
+				continue
+			}
+			details, err := b.local.animeRelease(ctx, item.ReleaseID)
+			if err != nil {
+				b.logger.Warn("check anime episode updates", "release_id", item.ReleaseID, "error", err)
+				continue
+			}
+			if strings.TrimSpace(details.Name.Main) != "" && !strings.EqualFold(strings.TrimSpace(details.Name.Main), strings.TrimSpace(item.Title)) {
+				b.logger.Warn("skip mismatched anime release", "release_id", item.ReleaseID)
+				continue
+			}
+			latest, ok := latestEpisode(details.Episodes)
+			if !ok {
+				continue
+			}
+			current := store.TelegramAnimeEpisodeState{
+				ReleaseID: item.ReleaseID, EpisodeID: latest.ID, Ordinal: latest.Ordinal, Name: latest.Name,
+			}
+			previous, known, err := b.store.TelegramAnimeEpisode(ctx, item.ReleaseID)
+			if err != nil {
+				b.logger.Warn("load anime episode state", "release_id", item.ReleaseID, "error", err)
+				continue
+			}
+			if !known {
+				if err := b.store.SetTelegramAnimeEpisode(ctx, current); err != nil {
+					b.logger.Warn("save anime episode baseline", "release_id", item.ReleaseID, "error", err)
+				}
+				continue
+			}
+			if latest.Ordinal <= previous.Ordinal {
+				if latest.Ordinal == previous.Ordinal && latest.ID != previous.EpisodeID && current.EpisodeID != "" {
+					_ = b.store.SetTelegramAnimeEpisode(ctx, current)
+				}
+				continue
+			}
+			torrents, err := b.local.animeTorrents(ctx, item.ReleaseID)
+			if err != nil {
+				b.logger.Warn("load torrents for new anime episode", "release_id", item.ReleaseID, "error", err)
+				continue
+			}
+			torrent, ok := selectAnimeTorrent(torrents, latest.Ordinal)
+			if !ok {
+				b.logger.Info("new anime episode has no usable torrent yet", "release_id", item.ReleaseID, "ordinal", latest.Ordinal)
+				continue
+			}
+			if err := b.local.downloadAnime(ctx, item.ReleaseID, torrent.ID, item.Title); err != nil {
+				b.logger.Warn("queue new anime episode", "release_id", item.ReleaseID, "torrent_id", torrent.ID, "error", err)
+				continue
+			}
+			if err := b.store.SetTelegramAnimeEpisode(ctx, current); err != nil {
+				b.logger.Warn("save anime episode state", "release_id", item.ReleaseID, "error", err)
+			}
+			if paired {
+				label := fmt.Sprintf("Серия %.1f", latest.Ordinal)
+				if latest.Ordinal == float64(int(latest.Ordinal)) {
+					label = fmt.Sprintf("Серия %d", int(latest.Ordinal))
+				}
+				if strings.TrimSpace(latest.Name) != "" {
+					label += " · " + latest.Name
+				}
+				quality := torrent.Quality.Description
+				if quality == "" {
+					quality = torrent.Quality.Value
+				}
+				if quality == "" {
+					quality = "качество не указано"
+				}
+				message := fmt.Sprintf("🆕 <b>Вышла новая серия</b>\n%s\n%s\n\n⬇️ Раздача добавлена в загрузки (%s, %d сидов).", html.EscapeString(item.Title), html.EscapeString(label), html.EscapeString(quality), torrent.Seeders)
+				if err := b.api.sendMessage(ctx, owner.ChatID, message, InlineKeyboardMarkup{Rows: [][]InlineKeyboardButton{{{Text: "🎞 Открыть медиатеку", CallbackData: "menu:library"}}}}); err != nil {
+					b.logger.Warn("send anime episode notification", "release_id", item.ReleaseID, "error", err)
+				}
+			}
+		}
+	}
+	check()
+	ticker := time.NewTicker(24 * time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			check()
+		}
+	}
+}
+
+func latestEpisode(episodes []aniliberty.Episode) (aniliberty.Episode, bool) {
+	if len(episodes) == 0 {
+		return aniliberty.Episode{}, false
+	}
+	latest := episodes[0]
+	for _, episode := range episodes[1:] {
+		if episode.Ordinal > latest.Ordinal {
+			latest = episode
+		}
+	}
+	return latest, true
+}
+
+var torrentEpisodeRange = regexp.MustCompile(`\[(\d+(?:\.\d+)?)(?:\s*-\s*(\d+(?:\.\d+)?))?\]\s*$`)
+
+func selectAnimeTorrent(torrents []aniliberty.Torrent, episode float64) (aniliberty.Torrent, bool) {
+	bestRank, bestSeeders := -1, -1
+	var best aniliberty.Torrent
+	for _, torrent := range torrents {
+		if torrent.ID <= 0 || !strings.HasPrefix(torrent.Magnet, "magnet:?") || !torrentIncludesEpisode(torrent.Label, episode) {
+			continue
+		}
+		quality := strings.ToLower(torrent.Quality.Value + " " + torrent.Quality.Description)
+		rank := 0
+		switch {
+		case strings.Contains(quality, "1080"):
+			rank = 3
+		case strings.Contains(quality, "720"):
+			rank = 2
+		case strings.Contains(quality, "480"):
+			rank = 1
+		}
+		if rank > bestRank || (rank == bestRank && torrent.Seeders > bestSeeders) ||
+			(rank == bestRank && torrent.Seeders == bestSeeders && torrent.Size > 0 && (best.Size == 0 || torrent.Size < best.Size)) {
+			best, bestRank, bestSeeders = torrent, rank, torrent.Seeders
+		}
+	}
+	return best, bestRank >= 0
+}
+
+func torrentIncludesEpisode(label string, episode float64) bool {
+	match := torrentEpisodeRange.FindStringSubmatch(strings.TrimSpace(label))
+	if len(match) < 2 {
+		return false
+	}
+	last := match[1]
+	if len(match) > 2 && match[2] != "" {
+		last = match[2]
+	}
+	maximum, err := strconv.ParseFloat(last, 64)
+	return err == nil && maximum >= episode
+}
+
 func (b *Bot) watchDownloads(ctx context.Context) {
 	// The first snapshot becomes the baseline, so already completed torrents do
 	// not produce a burst of old notifications after an update or reboot.
@@ -225,7 +382,7 @@ func (b *Bot) watchDownloads(ctx context.Context) {
 		owner, paired, ownerErr := b.store.TelegramOwner(ctx)
 		for _, item := range items {
 			previous, known := states[item.ID]
-			current := store.TelegramDownloadState{PercentDone: item.PercentDone, ErrorString: item.ErrorString}
+			current := store.TelegramDownloadState{PercentDone: item.PercentDone, Error: item.Error, ErrorString: item.ErrorString}
 			completed, failed, shouldStop := classifyDownload(previous, known, item)
 			stopped := false
 			if shouldStop {
@@ -262,7 +419,11 @@ func classifyDownload(previous store.TelegramDownloadState, known bool, item tra
 	// Tracker errors after 100% do not affect downloaded files and should not
 	// produce alarming notifications. Completed active torrents are stopped so
 	// they cannot keep uploading or contacting an obsolete tracker.
-	failed = known && item.PercentDone < 1 && item.ErrorString != "" && item.ErrorString != previous.ErrorString
+	// Transmission error codes 1 and 2 are tracker warnings/errors and often
+	// change during normal retries. Only a transition into code 3 (local disk or
+	// permission failure) warrants a push notification; persist the code so a
+	// changing message cannot generate another alert every polling cycle.
+	failed = known && item.PercentDone < 1 && item.Error == 3 && previous.Error != 3 && item.ErrorString != ""
 	shouldStop = item.PercentDone >= 1 && item.Status != 0
 	return completed, failed, shouldStop
 }

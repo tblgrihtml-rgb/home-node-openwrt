@@ -11,7 +11,7 @@
   <link rel="manifest" href="/manifest.webmanifest?v=20260930-5">
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png?v=20260930-5">
   <script src="/theme.js?v=20260930-5"></script>
-  <link rel="stylesheet" href="/styles.css?v=20261014-1">
+  <link rel="stylesheet" href="/styles.css?v=20261018-2">
 </head>
 <body>
   <div class="app-shell">
@@ -126,11 +126,34 @@
           <div><p class="eyebrow">SSD · HomeNode</p><h1>Музыка</h1><p class="lead">Ваши исполнители, альбомы и треки. Слушайте прямо с роутера.</p></div>
           <button id="refresh-music" class="icon-button" title="Обновить музыку" aria-label="Обновить музыку"><img src="/icons/refresh.svg" alt=""></button>
         </div>
-        <div class="music-tools">
-          <span id="music-summary" class="section-note"></span>
-          <label class="mini-search"><img src="/icons/search.svg" alt=""><input id="music-query" type="search" placeholder="Исполнитель, альбом или трек" aria-label="Поиск музыки"></label>
-        </div>
-        <div id="music-results" class="library-grid"></div>
+        <section class="content-section music-online-section">
+          <div class="section-heading"><div><p class="eyebrow">Новые треки</p><h2>Поиск музыки</h2></div></div>
+          <p class="section-note">Поиск по каталогу. Загрузка FLAC зависит от внешнего сервиса SpotiFLAC Community и требует подтверждения в браузере.</p>
+          <div class="music-provider-line"><span id="music-provider-status" class="section-note">Проверяем источник…</span><button id="music-verify" type="button" class="text-button" hidden>Подтвердить доступ</button></div>
+          <div id="music-verify-steps" class="music-verify-steps" hidden>
+            <p>1. <a id="music-verify-link" target="_blank" rel="noopener noreferrer">Откройте проверку</a> в новой вкладке и пройдите её.</p>
+            <p>2. В конце браузер покажет, что адрес <code>127.0.0.1</code> недоступен. Это ожидаемо: скопируйте <strong>весь адрес</strong> из его адресной строки и вставьте ниже. Никому его не отправляйте.</p>
+            <form id="music-verify-form"><input id="music-verify-callback" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="http://127.0.0.1:53672/session-grant?..." required><button type="submit">Завершить</button></form>
+          </div>
+          <form id="music-online-form" class="global-search music-online-search">
+            <img src="/icons/search.svg" alt="">
+            <input id="music-online-query" type="search" minlength="2" maxlength="100" placeholder="Исполнитель или название трека" autocomplete="off" required>
+            <button type="submit">Найти</button>
+          </form>
+          <div id="music-online-results" class="music-online-results"></div>
+        </section>
+        <section class="content-section music-queue-section">
+          <div class="section-heading"><div><p class="eyebrow">Загрузка на SSD</p><h2>Очередь музыки</h2></div><button id="music-queue-refresh" type="button" class="text-button">Обновить</button></div>
+          <div id="music-queue" class="music-queue"></div>
+        </section>
+        <section class="content-section">
+          <div class="section-heading"><div><p class="eyebrow">Ваша коллекция</p><h2>На диске</h2></div></div>
+          <div class="music-tools">
+            <span id="music-summary" class="section-note"></span>
+            <label class="mini-search"><img src="/icons/search.svg" alt=""><input id="music-query" type="search" placeholder="Исполнитель, альбом или трек" aria-label="Поиск музыки"></label>
+          </div>
+          <div id="music-results" class="library-grid"></div>
+        </section>
       </section>
 
       <section id="view-manga" class="view">
@@ -249,6 +272,6 @@
     </div>
   </dialog>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
-  <script src="/app.js?v=20261014-1" defer></script>
+  <script src="/app.js?v=20261018-2" defer></script>
 </body>
 </html>

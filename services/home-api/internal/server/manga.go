@@ -82,7 +82,7 @@ func (s *Server) mangaList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	books := make([]MangaBook, 0)
-	err = filepath.WalkDir(s.cfg.MediaRoot, func(filename string, entry fs.DirEntry, walkErr error) error {
+	err = filepath.WalkDir(s.cfg.MangaDir, func(filename string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}

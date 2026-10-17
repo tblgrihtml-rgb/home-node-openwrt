@@ -58,6 +58,20 @@ type Release struct {
 	} `json:"poster"`
 }
 
+type Episode struct {
+	ID      string  `json:"id"`
+	Name    string  `json:"name"`
+	Ordinal float64 `json:"ordinal"`
+}
+
+type ReleaseDetails struct {
+	ID   int64 `json:"id"`
+	Name struct {
+		Main string `json:"main"`
+	} `json:"name"`
+	Episodes []Episode `json:"episodes"`
+}
+
 type CatalogFilter struct {
 	Search        string
 	Type          string
@@ -164,6 +178,18 @@ func (c *Client) Torrents(ctx context.Context, releaseID int64) ([]Torrent, erro
 		return nil, err
 	}
 	return torrents, nil
+}
+
+func (c *Client) ReleaseDetails(ctx context.Context, releaseID int64) (ReleaseDetails, error) {
+	if releaseID <= 0 {
+		return ReleaseDetails{}, errors.New("invalid release id")
+	}
+	var details ReleaseDetails
+	path := "/anime/releases/" + strconv.FormatInt(releaseID, 10)
+	if err := c.getJSON(ctx, path, &details); err != nil {
+		return ReleaseDetails{}, err
+	}
+	return details, nil
 }
 
 func (c *Client) getJSON(ctx context.Context, path string, target any) error {

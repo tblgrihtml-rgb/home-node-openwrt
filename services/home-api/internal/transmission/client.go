@@ -26,6 +26,7 @@ type Torrent struct {
 	ID             int64   `json:"id"`
 	Name           string  `json:"name"`
 	Status         int     `json:"status"`
+	Error          int     `json:"error"`
 	PercentDone    float64 `json:"percentDone"`
 	RateDownload   int64   `json:"rateDownload"`
 	RateUpload     int64   `json:"rateUpload"`
@@ -87,7 +88,7 @@ func (c *Client) List(ctx context.Context) ([]Torrent, error) {
 	var result struct {
 		Torrents []Torrent `json:"torrents"`
 	}
-	fields := []string{"id", "name", "status", "percentDone", "rateDownload", "rateUpload", "eta", "downloadDir", "errorString", "peersConnected", "isStalled", "totalSize", "leftUntilDone", "addedDate", "uploadedEver"}
+	fields := []string{"id", "name", "status", "error", "percentDone", "rateDownload", "rateUpload", "eta", "downloadDir", "errorString", "peersConnected", "isStalled", "totalSize", "leftUntilDone", "addedDate", "uploadedEver"}
 	if err := c.call(ctx, "torrent-get", map[string]any{"fields": fields}, &result); err != nil {
 		return nil, err
 	}
